@@ -1,24 +1,24 @@
 use chess_engine_core::{ChessEngine, PlayerState, GameState, Player};
 
 fn main() {
-    /*let white_state = PlayerState::new_from_state([
-        vec!["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"],
-        vec!["b1", "g1"],
-        vec!["c1", "f1"],
-        vec!["a1", "h1"],
-        vec!["d1"],
-        vec!["e1"],
-    ]);
-    let black_state = PlayerState::new_from_state([
-        vec!["a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7"],
-        vec!["b8", "g8"],
-        vec!["c8", "f8"],
-        vec!["a8", "h8"],
-        vec!["d8"],
-        vec!["e8"],
-    ]);*/
+    // let white_state = PlayerState::new_from_state([
+    //     vec!["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"],
+    //     vec!["b1", "g1"],
+    //     vec!["c1", "f1"],
+    //     vec!["a1", "h1"],
+    //     vec!["d1"],
+    //     vec!["e1"],
+    // ]);
+    // let black_state = PlayerState::new_from_state([
+    //     vec!["a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7"],
+    //     vec!["b8", "g8"],
+    //     vec!["c8", "f8"],
+    //     vec!["a8", "h8"],
+    //     vec!["d8"],
+    //     vec!["e8"],
+    // ]);
     let white_state = PlayerState::new_from_state([
-        vec!["32", "b2", "c3", "d3", "f2", "g3", "h2"],
+        vec!["a3", "b2", "c3", "d3", "f2", "g3", "h2"],
         vec!["g5"],
         vec!["g2", "h6"],
         vec!["e1", "e6"],
@@ -35,6 +35,8 @@ fn main() {
     ]);
     let mut game_state = GameState::new_from_state(white_state, black_state, Player::White);
     println!("Initial score: {}", game_state.score());
-    let mut engine = ChessEngine::<5, 7, 10>::new();
+    let mut engine = ChessEngine::<6, 8, 24, 1_000_000>::new(42);
     println!("best value: {}", engine.solve(&mut game_state));
+
+    engine.get_moves();
 }
