@@ -1,7 +1,7 @@
 use rand::Rng;
 
 use crate::{
-    config::{HASH_TYPE, NUM_PIECES, PIECE_SCORES},
+    config::{HashType, NUM_PIECES, PIECE_SCORES},
     types::{Move, Piece, Player},
     util,
 };
@@ -20,6 +20,12 @@ where
             grid |= 1u64 << util::canonical_to_pos(pos);
         }
         Grid(grid)
+    }
+}
+
+impl Grid{
+    pub fn contains_pos(&self, pos: u8) -> bool{
+        self.0 & (1 << pos) > 0
     }
 }
 
@@ -115,9 +121,9 @@ impl PlayerState {
 }
 
 pub struct ZoboristState {
-    pieces: [[[HASH_TYPE; 64]; 6]; 2], // index: player, piece, position
-    is_black: HASH_TYPE,
-    castle: [[[[HASH_TYPE; 2]; 2]; 2]; 2], // index: white castle short, white castle long, black castle short, black castle long
+    pieces: [[[HashType; 64]; 6]; 2], // index: player, piece, position
+    is_black: HashType,
+    castle: [[[[HashType; 2]; 2]; 2]; 2], // index: white castle short, white castle long, black castle short, black castle long
 }
 
 impl ZoboristState {
@@ -131,13 +137,13 @@ impl ZoboristState {
         };
 
         for num in state.pieces.iter_mut().flatten().flatten() {
-            *num = ((rng.gen::<u64>() as HASH_TYPE) << 64) + rng.gen::<u64>() as HASH_TYPE;
+            *num = /*((rng.gen::<u64>() as HashType) << 64) + */rng.gen::<u64>() as HashType;
         }
 
-        state.is_black = ((rng.gen::<u64>() as HASH_TYPE) << 64) + rng.gen::<u64>() as HASH_TYPE;
+        state.is_black = /*((rng.gen::<u64>() as HashType) << 64) +*/ rng.gen::<u64>() as HashType;
 
         for num in state.castle.iter_mut().flatten().flatten().flatten() {
-            *num = ((rng.gen::<u64>() as HASH_TYPE) << 64) + rng.gen::<u64>() as HASH_TYPE;
+            *num = /*((rng.gen::<u64>() as HashType) << 64) + */rng.gen::<u64>() as HashType;
         }
 
         state
@@ -148,7 +154,7 @@ impl ZoboristState {
 pub struct GameState {
     pub states: [PlayerState; 2],
     pub player: Player,
-    pub hash: HASH_TYPE,
+    pub hash: HashType,
 }
 
 impl Hash for GameState {
@@ -172,6 +178,27 @@ impl GameState {
             ],
             player: Player::White,
             hash: 0,
+        }
+    }
+
+    pub fn check_move_legal(&self, mov: Move) -> bool{
+        let state = self.get_state(self.player);
+        let opp_state = self.get_state(self.player.opp());
+        match mov{
+            Move::Move { prev_pos, new_pos, piece, captured_piece: None } => {
+               state.pieces[piece as usize].contains_pos(prev_pos) && !opp_state.square_occupied(new_pos) 
+            },
+            Move::Move { prev_pos, new_pos, piece, captured_piece: Some(captured_piece) } => {
+                state.pieces[piece as usize].contains_pos(prev_pos) && opp_state.pieces[captured_piece as usize].contains_pos(new_pos)
+            },
+            Move::Castle { is_short: true } => state.meta.can_castle_short,
+            Move::Castle { is_short: false} => state.meta.can_castle_long,
+            Move::PawnPromote { prev_pos, new_pos, captured_piece: None, .. } => {
+                state.pieces[Piece::Pawn as usize].contains_pos(prev_pos) && !state.square_occupied(new_pos) && !opp_state.square_occupied(new_pos)
+            },
+            Move::PawnPromote { prev_pos, new_pos, captured_piece: Some(captured_piece), .. } => {
+                state.pieces[Piece::Pawn as usize].contains_pos(prev_pos) && opp_state.pieces[captured_piece as usize].contains_pos(new_pos) 
+            },
         }
     }
 
