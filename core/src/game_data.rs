@@ -127,7 +127,7 @@ pub struct ZoboristState {
 }
 
 impl ZoboristState {
-    pub fn new(seed: u64) -> Self {
+    pub fn new(_seed: u64) -> Self {
         let mut rng = rand::thread_rng();
 
         let mut state = ZoboristState {
@@ -276,9 +276,9 @@ impl GameState {
         &self.states[player as usize]
     }
 
-    fn get_state_mut(&mut self, player: Player) -> &mut PlayerState {
-        &mut self.states[player as usize]
-    }
+    // fn get_state_mut(&mut self, player: Player) -> &mut PlayerState {
+    //     &mut self.states[player as usize]
+    // }
 
     fn modify_state<const APPLY_METADATA_CHANGES: bool>(
         &mut self,

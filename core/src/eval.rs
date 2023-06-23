@@ -3,7 +3,7 @@ use crate::{config::NUM_PIECES, GameState, Player};
 pub const WIN_THRESHOLD: i32 = 1_000_000;
 const KING_VALUE: i32 = 2_000_000;
 
-const PIECE_PHASE: [u32; NUM_PIECES] = [0, 1, 1, 1, 2, 4];
+const PIECE_PHASE: [u32; NUM_PIECES] = [0, 1, 1, 2, 4, 0];
 
 // credit to the values in this code: https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
 

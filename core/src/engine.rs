@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, cmp::Reverse};
 
-use crate::{types::{Move, ValueMovePair, Piece}, game_data::ZoboristState, config::MOVE_TABLE_SIZE, Player, GameState, util, move_table::{MoveTable, MoveEntry}, eval};
+use crate::{types::{Move, ValueMovePair, Piece}, game_data::ZoboristState, config::MOVE_TABLE_SIZE, Player, GameState, util, move_table::{MoveTable, MoveEntry}, eval, killer_table::KillerTable, move_buffer::MoveBuffer};
 
 pub struct ChessEngine<
     const MAX_DEPTH_SOFT: usize,
@@ -8,8 +8,8 @@ pub struct ChessEngine<
     const MAX_DEPTH_HARD: usize
 > {
     // state: GameState,
-    move_buf: [Vec<Move>; MAX_DEPTH_HARD],
-    killer_moves: [Option<Move>; MAX_DEPTH_HARD],
+    move_buf: MoveBuffer<MAX_DEPTH_HARD>,
+    killer_table: KillerTable<MAX_DEPTH_HARD>,
     opp_move_grid: u64,
     nodes_explored: u64,
     cache_hits: u64,
@@ -34,11 +34,11 @@ impl<const MAX_DEPTH_SOFT: usize, const MAX_DEPTH_CAPTURE: usize, const MAX_DEPT
         if MAX_DEPTH_SOFT > MAX_DEPTH_CAPTURE || MAX_DEPTH_CAPTURE > MAX_DEPTH_HARD {
             panic!("invalid depth parameters");
         }
-        const BUF: Vec<Move> = vec![];
+        // const BUF: Vec<Move> = vec![];
         ChessEngine {
             opp_move_grid: 0,
-            move_buf: [BUF; MAX_DEPTH_HARD],
-            killer_moves: [None; MAX_DEPTH_HARD],
+            move_buf: Default::default(),
+            killer_table: Default::default(),
             nodes_explored: 0,
             cache_hits: 0,
             calculated_moves: BTreeSet::default(),
@@ -48,418 +48,418 @@ impl<const MAX_DEPTH_SOFT: usize, const MAX_DEPTH_CAPTURE: usize, const MAX_DEPT
         }
     }
 
-    // TYPE: whether to save it to teh move buffer or to put i
-    fn emit_move<const TYPE: bool>(&mut self, next_move: Move, player: Player, depth: usize) {
-        if TYPE {
-            if let Move::Move {
-                prev_pos,
-                new_pos,
-                captured_piece,
-                piece,
-            } = next_move
-            {
-                if piece == Piece::Pawn
-                    && ((player == Player::White && (new_pos >> 3) == 7)
-                        || (player == Player::Black && (new_pos >> 3) == 0))
-                {
-                    const PIECES: [Piece; 4] =
-                        [Piece::Queen, Piece::Knight, Piece::Rook, Piece::Bishop];
-                    for promoted_to_piece in PIECES {
-                        self.move_buf[depth].push(Move::PawnPromote {
-                            prev_pos,
-                            new_pos,
-                            promoted_to_piece,
-                            captured_piece,
-                        });
-                    }
-                    return;
-                }
-            }
-            self.move_buf[depth].push(next_move);
-        } else if let Move::Move { new_pos, .. } = next_move {
-            // opp move grid is for player squares that are under attack, is used to check if king can castle
-            // note that we can count for pawn moves and pawn captures: this doesn't matter
-            self.opp_move_grid |= 1u64 << new_pos;
-        }
-    }
+    // // TYPE: whether to save it to teh move buffer or to put i
+    // fn emit_move<const TYPE: bool>(&mut self, next_move: Move, player: Player, depth: usize) {
+    //     if TYPE {
+    //         if let Move::Move {
+    //             prev_pos,
+    //             new_pos,
+    //             captured_piece,
+    //             piece,
+    //         } = next_move
+    //         {
+    //             if piece == Piece::Pawn
+    //                 && ((player == Player::White && (new_pos >> 3) == 7)
+    //                     || (player == Player::Black && (new_pos >> 3) == 0))
+    //             {
+    //                 const PIECES: [Piece; 4] =
+    //                     [Piece::Queen, Piece::Knight, Piece::Rook, Piece::Bishop];
+    //                 for promoted_to_piece in PIECES {
+    //                     self.move_buf[depth].push(Move::PawnPromote {
+    //                         prev_pos,
+    //                         new_pos,
+    //                         promoted_to_piece,
+    //                         captured_piece,
+    //                     });
+    //                 }
+    //                 return;
+    //             }
+    //         }
+    //         self.move_buf[depth].push(next_move);
+    //     } else if let Move::Move { new_pos, .. } = next_move {
+    //         // opp move grid is for player squares that are under attack, is used to check if king can castle
+    //         // note that we can count for pawn moves and pawn captures: this doesn't matter
+    //         self.opp_move_grid |= 1u64 << new_pos;
+    //     }
+    // }
 
-    fn get_moves_by_deltas<const TYPE: bool, T: IntoIterator<Item = (i8, i8)>>(
-        &mut self,
-        state: &GameState,
-        prev_pos: u8,
-        player: Player,
-        piece: Piece,
-        deltas: T,
-        depth: usize,
-    ) {
-        for (dy, dx) in deltas {
-            let mut res_coord = util::pos_to_coord(prev_pos);
-            res_coord.0 += dy;
-            res_coord.1 += dx;
-            while res_coord.0 >= 0 && res_coord.0 < 8 && res_coord.1 >= 0 && res_coord.1 < 8 {
-                let new_pos = util::coord_to_pos(res_coord);
-                if state.get_state(player).square_occupied(new_pos) {
-                    break;
-                }
-                // self.emit_move::<TYPE>(prev_pos, new_pos, piece, MoveType::MoveCapture, depth);
-                // self.move_buf.push((pos, res_pos, MoveType::MoveCapture));
-                if let Some(captured_piece) =
-                    state.get_state(player.opp()).get_piece_at_pos(new_pos)
-                {
-                    self.emit_move::<TYPE>(
-                        Move::Move {
-                            prev_pos,
-                            new_pos,
-                            piece,
-                            captured_piece: Some(captured_piece),
-                        },
-                        player,
-                        depth,
-                    );
-                    break;
-                }
-                self.emit_move::<TYPE>(
-                    Move::Move {
-                        prev_pos,
-                        new_pos,
-                        piece,
-                        captured_piece: None,
-                    },
-                    player,
-                    depth,
-                );
-                res_coord.0 += dy;
-                res_coord.1 += dx;
-            }
-        }
-    }
+    // fn get_moves_by_deltas<const TYPE: bool, T: IntoIterator<Item = (i8, i8)>>(
+    //     &mut self,
+    //     state: &GameState,
+    //     prev_pos: u8,
+    //     player: Player,
+    //     piece: Piece,
+    //     deltas: T,
+    //     depth: usize,
+    // ) {
+    //     for (dy, dx) in deltas {
+    //         let mut res_coord = util::pos_to_coord(prev_pos);
+    //         res_coord.0 += dy;
+    //         res_coord.1 += dx;
+    //         while res_coord.0 >= 0 && res_coord.0 < 8 && res_coord.1 >= 0 && res_coord.1 < 8 {
+    //             let new_pos = util::coord_to_pos(res_coord);
+    //             if state.get_state(player).square_occupied(new_pos) {
+    //                 break;
+    //             }
+    //             // self.emit_move::<TYPE>(prev_pos, new_pos, piece, MoveType::MoveCapture, depth);
+    //             // self.move_buf.push((pos, res_pos, MoveType::MoveCapture));
+    //             if let Some(captured_piece) =
+    //                 state.get_state(player.opp()).get_piece_at_pos(new_pos)
+    //             {
+    //                 self.emit_move::<TYPE>(
+    //                     Move::Move {
+    //                         prev_pos,
+    //                         new_pos,
+    //                         piece,
+    //                         captured_piece: Some(captured_piece),
+    //                     },
+    //                     player,
+    //                     depth,
+    //                 );
+    //                 break;
+    //             }
+    //             self.emit_move::<TYPE>(
+    //                 Move::Move {
+    //                     prev_pos,
+    //                     new_pos,
+    //                     piece,
+    //                     captured_piece: None,
+    //                 },
+    //                 player,
+    //                 depth,
+    //             );
+    //             res_coord.0 += dy;
+    //             res_coord.1 += dx;
+    //         }
+    //     }
+    // }
 
-    // todo: enpassant, double move
-    fn get_move_by_piece<const TYPE: bool>(
-        &mut self,
-        state: &GameState,
-        piece: Piece,
-        prev_pos: u8,
-        player: Player,
-        depth: usize,
-    ) {
-        match piece {
-            Piece::Pawn => {
-                if player == Player::White {
-                    if !state.get_state(player.opp()).square_occupied(prev_pos + 8) {
-                        self.emit_move::<TYPE>(
-                            Move::Move {
-                                prev_pos,
-                                new_pos: prev_pos + 8,
-                                piece,
-                                captured_piece: None,
-                            },
-                            player,
-                            depth,
-                        );
-                        if (prev_pos >> 3) == 1
-                            && !state.get_state(player.opp()).square_occupied(prev_pos + 16)
-                        {
-                            self.emit_move::<TYPE>(
-                                Move::Move {
-                                    prev_pos,
-                                    new_pos: prev_pos + 16,
-                                    piece,
-                                    captured_piece: None,
-                                },
-                                player,
-                                depth,
-                            );
-                        }
-                    }
+    // // todo: enpassant, double move
+    // fn get_move_by_piece<const TYPE: bool>(
+    //     &mut self,
+    //     state: &GameState,
+    //     piece: Piece,
+    //     prev_pos: u8,
+    //     player: Player,
+    //     depth: usize,
+    // ) {
+    //     match piece {
+    //         Piece::Pawn => {
+    //             if player == Player::White {
+    //                 if !state.get_state(player.opp()).square_occupied(prev_pos + 8) {
+    //                     self.emit_move::<TYPE>(
+    //                         Move::Move {
+    //                             prev_pos,
+    //                             new_pos: prev_pos + 8,
+    //                             piece,
+    //                             captured_piece: None,
+    //                         },
+    //                         player,
+    //                         depth,
+    //                     );
+    //                     if (prev_pos >> 3) == 1
+    //                         && !state.get_state(player.opp()).square_occupied(prev_pos + 16)
+    //                     {
+    //                         self.emit_move::<TYPE>(
+    //                             Move::Move {
+    //                                 prev_pos,
+    //                                 new_pos: prev_pos + 16,
+    //                                 piece,
+    //                                 captured_piece: None,
+    //                             },
+    //                             player,
+    //                             depth,
+    //                         );
+    //                     }
+    //                 }
 
-                    if (prev_pos & 0b111) > 0 {
-                        if let Some(captured_piece) =
-                            state.get_state(player.opp()).get_piece_at_pos(prev_pos + 7)
-                        {
-                            self.emit_move::<TYPE>(
-                                Move::Move {
-                                    prev_pos,
-                                    new_pos: prev_pos + 7,
-                                    piece,
-                                    captured_piece: Some(captured_piece),
-                                },
-                                player,
-                                depth,
-                            );
-                        }
-                    }
-                    if (prev_pos & 0b111) < 7 {
-                        if let Some(captured_piece) =
-                            state.get_state(player.opp()).get_piece_at_pos(prev_pos + 9)
-                        {
-                            self.emit_move::<TYPE>(
-                                Move::Move {
-                                    prev_pos,
-                                    new_pos: prev_pos + 9,
-                                    piece,
-                                    captured_piece: Some(captured_piece),
-                                },
-                                player,
-                                depth,
-                            );
-                        }
-                    }
-                } else {
-                    if !state.get_state(player.opp()).square_occupied(prev_pos - 8) {
-                        self.emit_move::<TYPE>(
-                            Move::Move {
-                                prev_pos,
-                                new_pos: prev_pos - 8,
-                                piece,
-                                captured_piece: None,
-                            },
-                            player,
-                            depth,
-                        );
-                        if (prev_pos >> 3) == 6
-                            && !state.get_state(player.opp()).square_occupied(prev_pos - 16)
-                        {
-                            self.emit_move::<TYPE>(
-                                Move::Move {
-                                    prev_pos,
-                                    new_pos: prev_pos - 16,
-                                    piece,
-                                    captured_piece: None,
-                                },
-                                player,
-                                depth,
-                            );
-                        }
-                    }
-                    if (prev_pos & 0b111) > 0 {
-                        if let Some(captured_piece) =
-                            state.get_state(player.opp()).get_piece_at_pos(prev_pos - 9)
-                        {
-                            self.emit_move::<TYPE>(
-                                Move::Move {
-                                    prev_pos,
-                                    new_pos: prev_pos - 9,
-                                    piece,
-                                    captured_piece: Some(captured_piece),
-                                },
-                                player,
-                                depth,
-                            );
-                        }
-                    }
-                    if (prev_pos & 0b111) < 7 {
-                        if let Some(captured_piece) =
-                            state.get_state(player.opp()).get_piece_at_pos(prev_pos - 7)
-                        {
-                            self.emit_move::<TYPE>(
-                                Move::Move {
-                                    prev_pos,
-                                    new_pos: prev_pos - 7,
-                                    piece,
-                                    captured_piece: Some(captured_piece),
-                                },
-                                player,
-                                depth,
-                            );
-                        }
-                    }
-                }
-            }
-            Piece::Knight => {
-                const KNIGHT_DELTAS: [(i8, i8); 8] = [
-                    (-1, -2),
-                    (-1, 2),
-                    (1, -2),
-                    (1, 2),
-                    (-2, -1),
-                    (-2, 1),
-                    (2, -1),
-                    (2, 1),
-                ];
-                let coord = util::pos_to_coord(prev_pos);
-                for (dy, dx) in KNIGHT_DELTAS {
-                    let res_coord = (coord.0 + dy, coord.1 + dx);
-                    let new_pos = util::coord_to_pos(res_coord);
-                    if res_coord.0 >= 0
-                        && res_coord.0 < 8
-                        && res_coord.1 >= 0
-                        && res_coord.1 < 8
-                        && !state.get_state(player).square_occupied(new_pos)
-                    {
-                        self.emit_move::<TYPE>(
-                            Move::Move {
-                                prev_pos,
-                                new_pos,
-                                piece,
-                                captured_piece: state
-                                    .get_state(player.opp())
-                                    .get_piece_at_pos(new_pos),
-                            },
-                            player,
-                            depth,
-                        );
-                    }
-                }
-            }
-            Piece::Bishop => {
-                const BISHOP_DELTAS: [(i8, i8); 4] = [(1, -1), (1, 1), (-1, -1), (-1, 1)];
-                self.get_moves_by_deltas::<TYPE, _>(
-                    state,
-                    prev_pos,
-                    player,
-                    Piece::Bishop,
-                    BISHOP_DELTAS,
-                    depth,
-                );
-            }
-            Piece::Rook => {
-                const ROOK_DELTAS: [(i8, i8); 4] = [(1, 0), (-1, 0), (0, -1), (0, 1)];
-                self.get_moves_by_deltas::<TYPE, _>(
-                    state,
-                    prev_pos,
-                    player,
-                    Piece::Rook,
-                    ROOK_DELTAS,
-                    depth,
-                );
-            }
-            Piece::Queen => {
-                const QUEEN_DELTAS: [(i8, i8); 8] = [
-                    (1, -1),
-                    (1, 1),
-                    (-1, -1),
-                    (-1, 1),
-                    (1, 0),
-                    (-1, 0),
-                    (0, -1),
-                    (0, 1),
-                ];
-                self.get_moves_by_deltas::<TYPE, _>(
-                    state,
-                    prev_pos,
-                    player,
-                    Piece::Queen,
-                    QUEEN_DELTAS,
-                    depth,
-                );
-            }
-            Piece::King => {
-                const KING_DELTAS: [(i8, i8); 8] = [
-                    (1, -1),
-                    (1, 1),
-                    (-1, -1),
-                    (-1, 1),
-                    (1, 0),
-                    (-1, 0),
-                    (0, -1),
-                    (0, 1),
-                ];
-                let coord = util::pos_to_coord(prev_pos);
+    //                 if (prev_pos & 0b111) > 0 {
+    //                     if let Some(captured_piece) =
+    //                         state.get_state(player.opp()).get_piece_at_pos(prev_pos + 7)
+    //                     {
+    //                         self.emit_move::<TYPE>(
+    //                             Move::Move {
+    //                                 prev_pos,
+    //                                 new_pos: prev_pos + 7,
+    //                                 piece,
+    //                                 captured_piece: Some(captured_piece),
+    //                             },
+    //                             player,
+    //                             depth,
+    //                         );
+    //                     }
+    //                 }
+    //                 if (prev_pos & 0b111) < 7 {
+    //                     if let Some(captured_piece) =
+    //                         state.get_state(player.opp()).get_piece_at_pos(prev_pos + 9)
+    //                     {
+    //                         self.emit_move::<TYPE>(
+    //                             Move::Move {
+    //                                 prev_pos,
+    //                                 new_pos: prev_pos + 9,
+    //                                 piece,
+    //                                 captured_piece: Some(captured_piece),
+    //                             },
+    //                             player,
+    //                             depth,
+    //                         );
+    //                     }
+    //                 }
+    //             } else {
+    //                 if !state.get_state(player.opp()).square_occupied(prev_pos - 8) {
+    //                     self.emit_move::<TYPE>(
+    //                         Move::Move {
+    //                             prev_pos,
+    //                             new_pos: prev_pos - 8,
+    //                             piece,
+    //                             captured_piece: None,
+    //                         },
+    //                         player,
+    //                         depth,
+    //                     );
+    //                     if (prev_pos >> 3) == 6
+    //                         && !state.get_state(player.opp()).square_occupied(prev_pos - 16)
+    //                     {
+    //                         self.emit_move::<TYPE>(
+    //                             Move::Move {
+    //                                 prev_pos,
+    //                                 new_pos: prev_pos - 16,
+    //                                 piece,
+    //                                 captured_piece: None,
+    //                             },
+    //                             player,
+    //                             depth,
+    //                         );
+    //                     }
+    //                 }
+    //                 if (prev_pos & 0b111) > 0 {
+    //                     if let Some(captured_piece) =
+    //                         state.get_state(player.opp()).get_piece_at_pos(prev_pos - 9)
+    //                     {
+    //                         self.emit_move::<TYPE>(
+    //                             Move::Move {
+    //                                 prev_pos,
+    //                                 new_pos: prev_pos - 9,
+    //                                 piece,
+    //                                 captured_piece: Some(captured_piece),
+    //                             },
+    //                             player,
+    //                             depth,
+    //                         );
+    //                     }
+    //                 }
+    //                 if (prev_pos & 0b111) < 7 {
+    //                     if let Some(captured_piece) =
+    //                         state.get_state(player.opp()).get_piece_at_pos(prev_pos - 7)
+    //                     {
+    //                         self.emit_move::<TYPE>(
+    //                             Move::Move {
+    //                                 prev_pos,
+    //                                 new_pos: prev_pos - 7,
+    //                                 piece,
+    //                                 captured_piece: Some(captured_piece),
+    //                             },
+    //                             player,
+    //                             depth,
+    //                         );
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //         Piece::Knight => {
+    //             const KNIGHT_DELTAS: [(i8, i8); 8] = [
+    //                 (-1, -2),
+    //                 (-1, 2),
+    //                 (1, -2),
+    //                 (1, 2),
+    //                 (-2, -1),
+    //                 (-2, 1),
+    //                 (2, -1),
+    //                 (2, 1),
+    //             ];
+    //             let coord = util::pos_to_coord(prev_pos);
+    //             for (dy, dx) in KNIGHT_DELTAS {
+    //                 let res_coord = (coord.0 + dy, coord.1 + dx);
+    //                 if res_coord.0 >= 0
+    //                 && res_coord.0 < 8
+    //                 && res_coord.1 >= 0
+    //                 && res_coord.1 < 8
+    //                 && !state.get_state(player).square_occupied(util::coord_to_pos(res_coord))
+    //                 {
+    //                     let new_pos = util::coord_to_pos(res_coord);
+    //                     self.emit_move::<TYPE>(
+    //                         Move::Move {
+    //                             prev_pos,
+    //                             new_pos,
+    //                             piece,
+    //                             captured_piece: state
+    //                                 .get_state(player.opp())
+    //                                 .get_piece_at_pos(new_pos),
+    //                         },
+    //                         player,
+    //                         depth,
+    //                     );
+    //                 }
+    //             }
+    //         }
+    //         Piece::Bishop => {
+    //             const BISHOP_DELTAS: [(i8, i8); 4] = [(1, -1), (1, 1), (-1, -1), (-1, 1)];
+    //             self.get_moves_by_deltas::<TYPE, _>(
+    //                 state,
+    //                 prev_pos,
+    //                 player,
+    //                 Piece::Bishop,
+    //                 BISHOP_DELTAS,
+    //                 depth,
+    //             );
+    //         }
+    //         Piece::Rook => {
+    //             const ROOK_DELTAS: [(i8, i8); 4] = [(1, 0), (-1, 0), (0, -1), (0, 1)];
+    //             self.get_moves_by_deltas::<TYPE, _>(
+    //                 state,
+    //                 prev_pos,
+    //                 player,
+    //                 Piece::Rook,
+    //                 ROOK_DELTAS,
+    //                 depth,
+    //             );
+    //         }
+    //         Piece::Queen => {
+    //             const QUEEN_DELTAS: [(i8, i8); 8] = [
+    //                 (1, -1),
+    //                 (1, 1),
+    //                 (-1, -1),
+    //                 (-1, 1),
+    //                 (1, 0),
+    //                 (-1, 0),
+    //                 (0, -1),
+    //                 (0, 1),
+    //             ];
+    //             self.get_moves_by_deltas::<TYPE, _>(
+    //                 state,
+    //                 prev_pos,
+    //                 player,
+    //                 Piece::Queen,
+    //                 QUEEN_DELTAS,
+    //                 depth,
+    //             );
+    //         }
+    //         Piece::King => {
+    //             const KING_DELTAS: [(i8, i8); 8] = [
+    //                 (1, -1),
+    //                 (1, 1),
+    //                 (-1, -1),
+    //                 (-1, 1),
+    //                 (1, 0),
+    //                 (-1, 0),
+    //                 (0, -1),
+    //                 (0, 1),
+    //             ];
+    //             let coord = util::pos_to_coord(prev_pos);
 
-                for (dy, dx) in KING_DELTAS {
-                    let res_coord = (coord.0 + dy, coord.1 + dx);
-                    let new_pos = util::coord_to_pos(res_coord);
+    //             for (dy, dx) in KING_DELTAS {
+    //                 let res_coord = (coord.0 + dy, coord.1 + dx);
+    //                 let new_pos = util::coord_to_pos(res_coord);
 
-                    // square is valid
-                    // check for square under attack by opposing piece is done during tree search
-                    if res_coord.0 >= 0
-                        && res_coord.0 < 8
-                        && res_coord.1 >= 0
-                        && res_coord.1 < 8
-                        && state.get_state(player).piece_grid & (1 << new_pos) == 0
-                    {
-                        self.emit_move::<TYPE>(
-                            Move::Move {
-                                prev_pos,
-                                new_pos,
-                                piece,
-                                captured_piece: state
-                                    .get_state(player.opp())
-                                    .get_piece_at_pos(new_pos),
-                            },
-                            player,
-                            depth,
-                        );
-                    }
-                }
+    //                 // square is valid
+    //                 // check for square under attack by opposing piece is done during tree search
+    //                 if res_coord.0 >= 0
+    //                     && res_coord.0 < 8
+    //                     && res_coord.1 >= 0
+    //                     && res_coord.1 < 8
+    //                     && state.get_state(player).piece_grid & (1 << new_pos) == 0
+    //                 {
+    //                     self.emit_move::<TYPE>(
+    //                         Move::Move {
+    //                         prev_pos,
+    //                             new_pos,
+    //                             piece,
+    //                             captured_piece: state
+    //                                 .get_state(player.opp())
+    //                                 .get_piece_at_pos(new_pos),
+    //                         },
+    //                         player,
+    //                         depth,
+    //                     );
+    //                 }
+    //             }
 
-                let player_state = state.get_state(player);
-                let offset = if player == Player::White { 0 } else { 7 };
+    //             let player_state = state.get_state(player);
+    //             let offset = if player == Player::White { 0 } else { 7 };
 
-                // optimization
-                if !player_state.square_occupied(5 + offset)
-                    && !player_state.square_occupied(6 + offset)
-                    && !player_state.square_occupied(2 + offset)
-                    && !player_state.square_occupied(3 + offset)
-                    && !player_state.square_occupied(4 + offset)
-                    && (player_state.meta.can_castle_short
-                        && self.opp_move_grid
-                            | (1 << (4 + offset))
-                            | (1 << (5 + offset))
-                            | (1 << (6 + offset))
-                            == 0)
-                    || (player_state.meta.can_castle_long
-                        && self.opp_move_grid
-                            | (1 << (4 + offset))
-                            | (1 << (3 + offset))
-                            | (1 << (2 + offset))
-                            == 0)
-                {
-                    self.opp_move_grid = 0;
-                    self.get_all_moves::<false>(state, state.player.opp(), depth);
+    //             // optimization
+    //             if !player_state.square_occupied(5 + offset)
+    //                 && !player_state.square_occupied(6 + offset)
+    //                 && !player_state.square_occupied(2 + offset)
+    //                 && !player_state.square_occupied(3 + offset)
+    //                 && !player_state.square_occupied(4 + offset)
+    //                 && (player_state.meta.can_castle_short
+    //                     && self.opp_move_grid
+    //                         | (1 << (4 + offset))
+    //                         | (1 << (5 + offset))
+    //                         | (1 << (6 + offset))
+    //                         == 0)
+    //                 || (player_state.meta.can_castle_long
+    //                     && self.opp_move_grid
+    //                         | (1 << (4 + offset))
+    //                         | (1 << (3 + offset))
+    //                         | (1 << (2 + offset))
+    //                         == 0)
+    //             {
+    //                 self.opp_move_grid = 0;
+    //                 self.get_all_moves::<false>(state, state.player.opp(), depth);
 
-                    if !player_state.square_occupied(5 + offset)
-                        && !player_state.square_occupied(6 + offset)
-                        && player_state.meta.can_castle_short
-                        && self.opp_move_grid
-                            | (1 << (4 + offset))
-                            | (1 << (5 + offset))
-                            | (1 << (6 + offset))
-                            == 0
-                    {
-                        self.emit_move::<TYPE>(Move::Castle { is_short: true }, player, depth)
-                    }
-                    if !player_state.square_occupied(2 + offset)
-                        && !player_state.square_occupied(3 + offset)
-                        && !player_state.square_occupied(4 + offset)
-                        && player_state.meta.can_castle_long
-                        && self.opp_move_grid
-                            | (1 << (4 + offset))
-                            | (1 << (3 + offset))
-                            | (1 << (2 + offset))
-                            == 0
-                    {
-                        self.emit_move::<TYPE>(Move::Castle { is_short: false }, player, depth)
-                    }
-                }
-            }
-        }
-    }
-    // overrides move_buf
-    // todo: en-passant
-    fn get_moves_by_piece_type<const TYPE: bool>(
-        &mut self,
-        state: &GameState,
-        piece: Piece,
-        player: Player,
-        depth: usize,
-    ) {
-        for i in 0u8..64 {
-            if state.get_state(player).pieces[piece as usize].0 & (1u64 << i) > 0 {
-                self.get_move_by_piece::<TYPE>(state, piece, i, player, depth);
-            }
-        }
-    }
+    //                 if !player_state.square_occupied(5 + offset)
+    //                     && !player_state.square_occupied(6 + offset)
+    //                     && player_state.meta.can_castle_short
+    //                     && self.opp_move_grid
+    //                         | (1 << (4 + offset))
+    //                         | (1 << (5 + offset))
+    //                         | (1 << (6 + offset))
+    //                         == 0
+    //                 {
+    //                     self.emit_move::<TYPE>(Move::Castle { is_short: true }, player, depth)
+    //                 }
+    //                 if !player_state.square_occupied(2 + offset)
+    //                     && !player_state.square_occupied(3 + offset)
+    //                     && !player_state.square_occupied(4 + offset)
+    //                     && player_state.meta.can_castle_long
+    //                     && self.opp_move_grid
+    //                         | (1 << (4 + offset))
+    //                         | (1 << (3 + offset))
+    //                         | (1 << (2 + offset))
+    //                         == 0
+    //                 {
+    //                     self.emit_move::<TYPE>(Move::Castle { is_short: false }, player, depth)
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+    // // overrides move_buf
+    // // todo: en-passant
+    // fn get_moves_by_piece_type<const TYPE: bool>(
+    //     &mut self,
+    //     state: &GameState,
+    //     piece: Piece,
+    //     player: Player,
+    //     depth: usize,
+    // ) {
+    //     for i in 0u8..64 {
+    //         if state.get_state(player).pieces[piece as usize].0 & (1u64 << i) > 0 {
+    //             self.get_move_by_piece::<TYPE>(state, piece, i, player, depth);
+    //         }
+    //     }
+    // }
 
-    fn get_all_moves<const TYPE: bool>(&mut self, state: &GameState, player: Player, depth: usize) {
-        self.get_moves_by_piece_type::<TYPE>(state, Piece::Pawn, player, depth);
-        self.get_moves_by_piece_type::<TYPE>(state, Piece::Knight, player, depth);
-        self.get_moves_by_piece_type::<TYPE>(state, Piece::Bishop, player, depth);
-        self.get_moves_by_piece_type::<TYPE>(state, Piece::Rook, player, depth);
-        self.get_moves_by_piece_type::<TYPE>(state, Piece::Queen, player, depth);
-        self.get_moves_by_piece_type::<TYPE>(state, Piece::King, player, depth);
-    }
+    // fn get_all_moves<const TYPE: bool>(&mut self, state: &GameState, player: Player, depth: usize) {
+    //     self.get_moves_by_piece_type::<TYPE>(state, Piece::Pawn, player, depth);
+    //     self.get_moves_by_piece_type::<TYPE>(state, Piece::Knight, player, depth);
+    //     self.get_moves_by_piece_type::<TYPE>(state, Piece::Bishop, player, depth);
+    //     self.get_moves_by_piece_type::<TYPE>(state, Piece::Rook, player, depth);
+    //     self.get_moves_by_piece_type::<TYPE>(state, Piece::Queen, player, depth);
+    //     self.get_moves_by_piece_type::<TYPE>(state, Piece::King, player, depth);
+    // }
 
     // fn recurse(
     //     &mut self,
@@ -474,8 +474,11 @@ impl<const MAX_DEPTH_SOFT: usize, const MAX_DEPTH_CAPTURE: usize, const MAX_DEPT
     // }
     // returns (score, initial piece pos, move piece pos)
     fn scoring_function(state: &GameState) -> i32{
+        let cur = 
         eval::evaluate(state)
         // state.score()
+        ;
+        if state.player == Player::Black {-cur} else {cur}
     }
 
     fn calc(
@@ -505,34 +508,39 @@ impl<const MAX_DEPTH_SOFT: usize, const MAX_DEPTH_CAPTURE: usize, const MAX_DEPT
             return Self::scoring_function(state);
         }
 
-        let mut value = if state.player == Player::White {
+        let mut value =// if state.player == Player::White {
             - eval::WIN_THRESHOLD
-        } else {
-            eval::WIN_THRESHOLD
-        };
+        // } else {
+        //     eval::WIN_THRESHOLD
+        // }
+        ;
 
         // if depth > MAX_DEPTH_CAPTURE {
         //     return (if value <= -WIN_THRESHOLD. || value >= WIN_THRESHOLD. {score as i32} else {value}, score as i32)
         // }
 
-        self.move_buf[depth].clear();
-        self.get_all_moves::<true>(state, state.player, depth);
+        self.move_buf.clear(depth);
+        self.move_buf.get_all_moves::<true>(state, state.player, depth);
 
-        self.move_buf[depth].sort_by_key(|a| Reverse(a.get_cmp_key(last_move_pos, self.killer_moves[depth])));
+        // self.move_buf[depth].sort_by_key(|a| Reverse(a.get_cmp_key(last_move_pos, self.killer_table.get(depth))));
         
         let mut best_move = None;
 
-        while let Some(next_move) = self.move_buf[depth].pop() {
+        // self.move_buf.sort(depth, last_move_pos, self.killer_table.get(depth));
+
+        while let Some(next_move) = self.move_buf.get_next_move(depth, last_move_pos, self.killer_table.get(depth)) {
+        // while let Some(next_move) = self.move_buf.pop(depth){
             if let Move::Move {
                 captured_piece: Some(Piece::King),
                 ..
             } = next_move
             {
-                let result = if state.player == Player::White {
+                let result = // if state.player == Player::White {
                     eval::WIN_THRESHOLD
-                } else {
-                    -eval::WIN_THRESHOLD
-                };
+                // } else {
+                //     -eval::WIN_THRESHOLD
+                // }
+                ;
                 if depth == 0 {
                     self.calculated_moves
                         .insert(ValueMovePair(result as i32, next_move));
@@ -580,10 +588,10 @@ impl<const MAX_DEPTH_SOFT: usize, const MAX_DEPTH_CAPTURE: usize, const MAX_DEPT
             state.apply_meta_hash(&self.zoborist_state);
 
             // update meta values
-            let next_val = self.calc(
+            let next_val = -self.calc(
                 state,
-                alpha,
-                beta,
+                -beta,
+                -alpha,
                 depth + 1,
                 if let Move::Move { new_pos, .. } = next_move {
                     new_pos
@@ -604,7 +612,7 @@ impl<const MAX_DEPTH_SOFT: usize, const MAX_DEPTH_CAPTURE: usize, const MAX_DEPT
             //     panic!("state no match");
             // }
 
-            if state.player == Player::White {
+            // if state.player == Player::White {
                 if next_val > value{
                     value = next_val;
                     best_move = Some(next_move);
@@ -614,17 +622,17 @@ impl<const MAX_DEPTH_SOFT: usize, const MAX_DEPTH_CAPTURE: usize, const MAX_DEPT
                     break;
                 }
                 alpha = i32::max(alpha, value);
-            } else {
-                // value = i32::min(value, next_val);
-                if next_val < value{
-                    value = next_val;
-                    best_move = Some(next_move);
-                }
-                if value <= alpha {
-                    break;
-                }
-                beta = i32::min(beta, value);
-            }
+            // } else {
+            //     // value = i32::min(value, next_val);
+            //     if next_val < value{
+            //         value = next_val;
+            //         best_move = Some(next_move);
+            //     }
+            //     if value <= alpha {
+            //         break;
+            //     }
+            //     beta = i32::min(beta, value);
+            // }
 
             if depth == 0 {
                 self.calculated_moves
@@ -636,7 +644,9 @@ impl<const MAX_DEPTH_SOFT: usize, const MAX_DEPTH_CAPTURE: usize, const MAX_DEPT
             self.state_cache.insert_entry(MoveEntry{ hash: state.hash, mov, depth: depth as u8, value });
         }
         if let Some(Move::Move { captured_piece: None, .. }) = best_move{
-            self.killer_moves[depth] = best_move
+            if let Some(best_move) = best_move{
+                self.killer_table.insert(best_move, depth);
+            }        
         }
 
         value

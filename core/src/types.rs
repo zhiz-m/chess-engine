@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use crate::{util, config::PIECE_SCORES};
+use crate::{util, config::PIECE_SCORES, killer_table::KillerEntry};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Player {
@@ -97,7 +97,7 @@ pub enum Move {
 }
 
 impl Move {
-    pub fn get_cmp_key(self, last_move_pos: u8, killer_move: Option<Move>) -> (u8, i32) {
+    pub fn get_cmp_key(self, last_move_pos: u8, killer_entry: KillerEntry) -> (u8, i32) {
         match self {
             Move::Move {
                 new_pos,
@@ -120,7 +120,7 @@ impl Move {
                     // captures worth the same material are slightly preferred over non-killer silent moves
                     else {(4,piece.value() - captured_piece.value()-1)}
                 } 
-                else if killer_move.is_some() && killer_move.unwrap() == self{
+                else if killer_entry.contains(self){
                     // println!("killer move");
                     (4,-2)
                 }
