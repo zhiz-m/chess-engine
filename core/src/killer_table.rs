@@ -33,20 +33,17 @@ impl KillerEntry{
     }
 }
 
-pub struct KillerTable<const MAX_DEPTH: usize>{
-    killer_moves: [KillerEntry; MAX_DEPTH]
+pub struct KillerTable{
+    killer_moves: Vec<KillerEntry>
 }
 
-impl<const MAX_DEPTH: usize> Default for KillerTable<MAX_DEPTH>{
-    fn default() -> Self {
-        Self { killer_moves: [Default::default(); MAX_DEPTH] }
-    }
-}
-
-impl<const MAX_DEPTH: usize> KillerTable<MAX_DEPTH>{
+impl KillerTable{
     // pub fn contains(&self, mov: Move, depth: usize) -> bool{
     //     self.killer_moves[depth].contains(mov)
     // }
+    pub fn new(depth: usize) -> Self{
+        Self { killer_moves: vec![Default::default(); depth+1] }        
+    }
 
     pub fn get(&self, depth: usize) -> KillerEntry{
         self.killer_moves[depth]

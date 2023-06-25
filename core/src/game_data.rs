@@ -3,7 +3,7 @@ use rand::Rng;
 use crate::{
     config::{HashType, NUM_PIECES, PIECE_SCORES},
     types::{Move, Piece, Player},
-    util,
+    util::{self, pos_to_coord, coord_to_pos},
 };
 use std::hash::Hash;
 
@@ -434,5 +434,58 @@ impl GameState {
                 .enumerate()
                 .map(|x| PIECE_SCORES[x.0] * x.1 .0.count_ones() as i32)
                 .sum::<i32>()
+    }
+    
+    pub fn is_in_check(&self) -> bool{
+        let player_state = self.get_state(self.player);
+        let opp_state = self.get_state(self.player.opp());
+        let king_pos = (player_state.pieces[Piece::King as usize].0 - 1).count_ones() as u8;
+        let coord_pos = pos_to_coord(king_pos);
+
+        const KNIGHT_DELTAS: [(i8, i8); 8] = [
+            (-1, -2),
+            (-1, 2),
+            (1, -2),
+            (1, 2),
+            (-2, -1),
+            (-2, 1),
+            (2, -1),
+            (2, 1),
+        ]; 
+
+        for (dy,dx) in KNIGHT_DELTAS.into_iter(){
+            let new_coord = (coord_pos.0 + dy, coord_pos.1 + dx);
+            if new_coord.0 < 0 || new_coord.0 > 7 || new_coord.1 < 0 || new_coord.1 > 7{
+                continue;
+            }
+            if opp_state.pieces[Piece::Knight as usize].contains_pos(coord_to_pos(new_coord)) {
+                return true;
+            }
+        }
+
+        const BISHOP_DELTAS: [(i8, i8); 4] = [(1, -1), (1, 1), (-1, -1), (-1, 1)];
+        const ROOK_DELTAS: [(i8, i8); 4] = [(1, 0), (-1, 0), (0, -1), (0, 1)];
+
+        let helper = |deltas, pieces: [Piece; 2]|{
+            for (dy, dx) in deltas {
+                let mut res_coord = util::pos_to_coord(king_pos);
+                res_coord.0 += dy;
+                res_coord.1 += dx;
+                while res_coord.0 >= 0 && res_coord.0 < 8 && res_coord.1 >= 0 && res_coord.1 < 8 {
+                    let new_pos = util::coord_to_pos(res_coord);
+                    
+                    if pieces.iter().map(|x| opp_state.pieces[*x as usize].contains_pos(new_pos)).any(|x|x){
+                        return true;
+                    }
+
+                    if player_state.square_occupied(new_pos) || opp_state.square_occupied(new_pos) {
+                        break;
+                    }
+                }
+            }
+            false
+        };
+
+        helper(BISHOP_DELTAS, [Piece::Bishop, Piece::Queen]) || helper(ROOK_DELTAS, [Piece::Rook, Piece::Queen])
     }
 }

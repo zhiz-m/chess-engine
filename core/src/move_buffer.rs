@@ -2,12 +2,16 @@ use std::cmp::Reverse;
 
 use crate::{types::{Move, Piece}, Player, GameState, util, killer_table::KillerEntry};
 
-pub struct MoveBuffer<const MAX_DEPTH_HARD: usize>{
+pub struct MoveBuffer{
     opp_move_grid: u64,
-    move_buf: [Vec<Option<Move>>; MAX_DEPTH_HARD],
+    move_buf: Vec<Vec<Option<Move>>>,
 }
 
-impl<const MAX_DEPTH_HARD: usize> MoveBuffer<MAX_DEPTH_HARD>{
+impl MoveBuffer{
+    pub fn new(depth: usize) -> Self{
+        Self { opp_move_grid: Default::default(), move_buf: vec![vec![]; depth + 1] }
+    }    
+
     // TYPE: whether to save it to teh move buffer or to put i
     fn emit_move<const TYPE: bool>(&mut self, next_move: Move, player: Player, depth: usize) {
         if TYPE {
@@ -94,7 +98,7 @@ impl<const MAX_DEPTH_HARD: usize> MoveBuffer<MAX_DEPTH_HARD>{
         }
     }
 
-    // todo: enpassant, double move
+    // todo: enpassant
     pub fn get_move_by_piece<const TYPE: bool>(
         &mut self,
         state: &GameState,
@@ -106,7 +110,7 @@ impl<const MAX_DEPTH_HARD: usize> MoveBuffer<MAX_DEPTH_HARD>{
         match piece {
             Piece::Pawn => {
                 if player == Player::White {
-                    if !state.get_state(player.opp()).square_occupied(prev_pos + 8) {
+                    if !state.get_state(player.opp()).square_occupied(prev_pos + 8) && !state.get_state(player).square_occupied(prev_pos + 8) {
                         self.emit_move::<TYPE>(
                             Move::Move {
                                 prev_pos,
@@ -118,7 +122,7 @@ impl<const MAX_DEPTH_HARD: usize> MoveBuffer<MAX_DEPTH_HARD>{
                             depth,
                         );
                         if (prev_pos >> 3) == 1
-                            && !state.get_state(player.opp()).square_occupied(prev_pos + 16)
+                            && !state.get_state(player.opp()).square_occupied(prev_pos + 16) && !state.get_state(player).square_occupied(prev_pos + 16)
                         {
                             self.emit_move::<TYPE>(
                                 Move::Move {
@@ -166,7 +170,7 @@ impl<const MAX_DEPTH_HARD: usize> MoveBuffer<MAX_DEPTH_HARD>{
                         }
                     }
                 } else {
-                    if !state.get_state(player.opp()).square_occupied(prev_pos - 8) {
+                    if !state.get_state(player.opp()).square_occupied(prev_pos - 8) && !state.get_state(player).square_occupied(prev_pos - 8) {
                         self.emit_move::<TYPE>(
                             Move::Move {
                                 prev_pos,
@@ -178,7 +182,7 @@ impl<const MAX_DEPTH_HARD: usize> MoveBuffer<MAX_DEPTH_HARD>{
                             depth,
                         );
                         if (prev_pos >> 3) == 6
-                            && !state.get_state(player.opp()).square_occupied(prev_pos - 16)
+                            && !state.get_state(player.opp()).square_occupied(prev_pos - 16) && !state.get_state(player).square_occupied(prev_pos - 16)
                         {
                             self.emit_move::<TYPE>(
                                 Move::Move {
@@ -437,11 +441,19 @@ impl<const MAX_DEPTH_HARD: usize> MoveBuffer<MAX_DEPTH_HARD>{
     pub fn clear(&mut self, depth: usize){
         self.move_buf[depth].clear();
     }
-}
 
-impl<const MAX_DEPTH_HARD: usize> Default for MoveBuffer<MAX_DEPTH_HARD>{
-    fn default() -> Self {
-        const BUF: Vec<Option<Move>> = vec![];
-        Self { opp_move_grid: Default::default(), move_buf: [BUF; MAX_DEPTH_HARD] }
+    // checks if the opposing king can be captured
+    pub fn is_legal(&self, depth: usize) -> bool{
+        !self.move_buf[depth].iter().filter_map(|x|*x).any(|x|{
+            match x{
+                Move::Move { captured_piece: Some(captured_piece), .. } => captured_piece == Piece::King,
+                Move::PawnPromote { captured_piece: Some(captured_piece), .. } => captured_piece == Piece::King,
+                _ => false
+            }
+        })
+    }
+
+    pub fn is_zugzwang(&self, depth: usize) -> bool{
+        self.move_buf[depth].is_empty()
     }
 }

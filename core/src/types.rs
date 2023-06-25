@@ -134,6 +134,14 @@ impl Move {
             } => (2, -promoted_to_piece.value()),
         }
     }
+
+    pub fn is_capture(self) -> bool{
+        match self{
+            Move::Move { captured_piece: Some(_), .. } => true,
+            Move::PawnPromote { captured_piece: Some(_), .. } => true,
+            _ => false,
+        }
+    }
 }
 
 impl Display for Move {
