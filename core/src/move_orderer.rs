@@ -58,9 +58,9 @@ impl MoveOrderer{
         self.killer_moves[depth].insert(mov);
     }
 
-    pub fn cmp_move(&mut self, x: Move, y: Move, depth: usize, last_move_pos: u8, player: Player) -> Ordering{
-        let cmp1 = self.get_move_cmp_key(x, last_move_pos, self.killer_moves[depth], player);
-        cmp1.cmp(&self.get_move_cmp_key(y, last_move_pos, self.killer_moves[depth], player))
+    pub fn cmp_move(&mut self, x: Move, y: Move, depth: usize, last_move_pos: u8, player: Player, transposition_move: Option<Move>) -> Ordering{
+        let cmp1 = self.get_move_cmp_key(x, last_move_pos, self.killer_moves[depth], player, transposition_move);
+        cmp1.cmp(&self.get_move_cmp_key(y, last_move_pos, self.killer_moves[depth], player, transposition_move))
     } 
 
     // note: black castling is the same squares as white castling
@@ -82,7 +82,7 @@ impl MoveOrderer{
         }
     }
 
-    fn get_move_cmp_key(&mut self, mov: Move, last_move_pos: u8, killer_entry: KillerEntry, player: Player) -> (u8, i32) {
+    fn get_move_cmp_key(&mut self, mov: Move, last_move_pos: u8, killer_entry: KillerEntry, player: Player, transposition_move: Option<Move>) -> (u8, i32) {
         match mov{
             Move::Move {
                 new_pos,
@@ -90,14 +90,16 @@ impl MoveOrderer{
                 captured_piece,
                 ..
             } => {
-                if let Some(captured_piece) = captured_piece {
-                    if captured_piece == Piece::King {
-                        (0, 0)
+                if let Some(Piece::King) = captured_piece{
+                    return (0,0)   
+                }
+                else if let Some(trans_mov) = transposition_move{
+                    if mov == trans_mov{
+                        return (0,1)
                     }
-                    // else if piece.value() > captured_piece.value(){
-                    //     (5,0)
-                    // }
-                    else if new_pos == last_move_pos {
+                }
+                if let Some(captured_piece) = captured_piece {
+                    if new_pos == last_move_pos {
                         (1, piece.value() - captured_piece.value())
                     } else if piece.value() < captured_piece.value() {
                         (3, piece.value() - captured_piece.value())

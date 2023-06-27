@@ -437,6 +437,7 @@ impl MoveBuffer {
         last_move_pos: u8,
         depth: usize,
         player: Player,
+        transposition_move: Option<Move>,
         move_orderer: &mut MoveOrderer,
     ) -> Option<Move> {
         self.move_buf[0..self.num_moves]
@@ -446,7 +447,7 @@ impl MoveBuffer {
                 // x.unwrap()
                 //     .get_cmp_key(last_move_pos, killer_entry)
                 //     .cmp(&y.unwrap().get_cmp_key(last_move_pos, killer_entry))
-                move_orderer.cmp_move(x.unwrap(), y.unwrap(), depth, last_move_pos, player)
+                move_orderer.cmp_move(x.unwrap(), y.unwrap(), depth, last_move_pos, player, transposition_move)
             })?
             .take()
     }

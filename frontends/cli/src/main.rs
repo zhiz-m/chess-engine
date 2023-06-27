@@ -10,11 +10,14 @@ struct Cli {
     #[clap(long, short)]
     perft: Option<usize>,
 
-    #[clap(long, short)]
+    #[clap(long, short='t')]
     allowed_time: Option<u64>,
 
     #[clap(long,short='s')]
-    path_to_state: Option<String>
+    path_to_state: Option<String>,
+
+    #[clap(long,short='d')]
+    fixed_depth: Option<usize>,
 }
 
 fn main() {    
@@ -74,7 +77,6 @@ fn main() {
     //     vec!["g8"],
     // ]);
 
-    let max_duration = Duration::from_secs(cli.allowed_time.unwrap_or(3));
     let game_state = match cli.path_to_state{
         Some(path) => {
             let mut buf = String::new();
@@ -85,16 +87,23 @@ fn main() {
         },
         None => GameState::default(),
     };
-
+    
     // let mut game_state = 
     // GameState::new_from_state(white_state, black_state, Player::White);
     println!("Initial score: {}", evaluate(&game_state));
     // let start_time = SystemTime::now();
-
+    
     // let (rx,tx) = mpsc::channel();
+    let mut engine = ChessEngine::new(10, 40, 42);
 
+    if let Some(depth) = cli.fixed_depth{
+        engine.solve(&game_state, depth);
+        engine.get_result();    
+        return;
+    }
+
+    let max_duration = Duration::from_secs(cli.allowed_time.unwrap_or(3));
     thread::spawn(move ||{
-        let mut engine = ChessEngine::new(10, 40, 42);
         for i in 1..10{
             // rx.send((i,engine.solve(&game_state)));
             println!("depth: {}", i);

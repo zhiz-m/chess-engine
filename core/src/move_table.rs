@@ -46,10 +46,10 @@ impl<const MOVE_TABLE_SIZE: usize> Default for MoveTable<MOVE_TABLE_SIZE>{
 impl<const MOVE_TABLE_SIZE: usize> MoveTable<MOVE_TABLE_SIZE>{
     pub fn get_entry(&self, hash: HashType, depth: u8, state: &GameState) -> Option<MoveEntry>{
         let ind = hash as usize & (MOVE_TABLE_SIZE - 1);
-        if self.table[ind].0.depth >= depth && self.table[ind].0.hash == hash && state.check_move_legal(self.table[ind].0.mov){
+        if self.table[ind].0.depth % 2 == depth % 2 && self.table[ind].0.depth >= depth && self.table[ind].0.hash == hash && state.check_move_legal(self.table[ind].0.mov){
             Some(self.table[ind].0)
         }
-        else if self.table[ind].1.depth >= depth && self.table[ind].1.hash == hash && state.check_move_legal(self.table[ind].1.mov){
+        else if self.table[ind].1.depth % 2 == depth % 2 && self.table[ind].1.depth >= depth && self.table[ind].1.hash == hash && state.check_move_legal(self.table[ind].1.mov){
             Some(self.table[ind].1)
         } 
         else {None}
