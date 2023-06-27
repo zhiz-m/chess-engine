@@ -1,17 +1,17 @@
-use std::{cmp::Reverse, collections::BTreeSet, fmt::Display};
+use std::{collections::BTreeSet, fmt::Display};
 
 use crate::{
-    config::{MOVE_TABLE_SIZE, NULL_MOVE_DEPTH_REDUCTION, NULL_MOVES_PER_BRANCH},
+    config::{MOVE_TABLE_SIZE, NULL_MOVES_PER_BRANCH, NULL_MOVE_DEPTH_REDUCTION},
     eval,
     game_data::ZoboristState,
-    killer_table::KillerTable,
     move_buffer::MoveBuffer,
+    move_orderer::MoveOrderer,
     move_table::{MoveEntry, MoveTable},
     types::{Move, Piece, ValueMovePair},
-    util, GameState, Player,
+    GameState, Player,
 };
 
-struct EngineStatistics{
+struct EngineStatistics {
     nodes_explored: u64,
     quiescence_nodes: u64,
     cache_hits: u64,
@@ -19,23 +19,36 @@ struct EngineStatistics{
     null_move_fail_highs: usize,
 }
 
-impl Default for EngineStatistics{
+impl Default for EngineStatistics {
     fn default() -> Self {
-        Self { nodes_explored: Default::default(), quiescence_nodes: Default::default(), cache_hits: Default::default(), max_depth_encountered: Default::default(), null_move_fail_highs: Default::default() }
+        Self {
+            nodes_explored: Default::default(),
+            quiescence_nodes: Default::default(),
+            cache_hits: Default::default(),
+            max_depth_encountered: Default::default(),
+            null_move_fail_highs: Default::default(),
+        }
     }
 }
 
-impl Display for EngineStatistics{
+impl Display for EngineStatistics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let res = format!("nodes: {} ({}/{}), cached_nodes: {}, null move fail highs: {}", self.nodes_explored + self.quiescence_nodes, self.nodes_explored, self.quiescence_nodes, self.cache_hits, self.null_move_fail_highs);
+        let res = format!(
+            "nodes: {} ({}/{}), cached_nodes: {}, null move fail highs: {}",
+            self.nodes_explored + self.quiescence_nodes,
+            self.nodes_explored,
+            self.quiescence_nodes,
+            self.cache_hits,
+            self.null_move_fail_highs
+        );
         f.write_str(&res)
     }
 }
 
 pub struct ChessEngine {
     // state: GameState,
-    move_buf: MoveBuffer,
-    killer_table: KillerTable,
+    // move_buf: MoveBuffer,
+    move_orderer: MoveOrderer,
     calculated_moves: BTreeSet<ValueMovePair>,
     zoborist_state: ZoboristState,
     // state_cache: HashMap<HashType, (usize, i32), FxBuildHasher>
@@ -53,23 +66,22 @@ pub struct ChessEngine {
 //     }
 // }
 
-impl ChessEngine
-{
+impl ChessEngine {
     pub fn new(normal_depth: usize, quiescence_depth: usize, zoborist_state_seed: u64) -> Self {
         if normal_depth > quiescence_depth {
             panic!("invalid depth parameters");
         }
         // const BUF: Vec<Move> = vec![];
         ChessEngine {
-            move_buf: MoveBuffer::new(normal_depth + quiescence_depth),
-            killer_table: KillerTable::new(normal_depth + quiescence_depth),
+            // move_buf: MoveBuffer::new(normal_depth + quiescence_depth),
+            move_orderer: MoveOrderer::new(normal_depth + quiescence_depth),
             calculated_moves: BTreeSet::default(),
             zoborist_state: ZoboristState::new(zoborist_state_seed),
             // state_cache: HashMap::with_hasher(FxBuildHasher::default())
             state_cache: Default::default(),
             quiescence_depth,
             normal_depth,
-            stats: Default::default()
+            stats: Default::default(),
         }
     }
 
@@ -109,7 +121,8 @@ impl ChessEngine
         }
 
         if let Some(MoveEntry { value, .. }) =
-            self.state_cache.get_entry(state.hash, depth as u8, state)
+            self.state_cache
+                .get_entry(state.hash, self.quiescence_depth as u8, state)
         {
             self.stats.cache_hits += 1;
             return value;
@@ -119,19 +132,19 @@ impl ChessEngine
             alpha = stand_pat;
         }
 
-        self.move_buf.clear(depth);
-        self.move_buf
-            .get_all_moves::<true>(state, state.player, depth);
+        let mut move_buf = MoveBuffer::default();
 
-        if self.move_buf.is_zugzwang(depth) {
+        // self.move_buf.clear(depth);
+        move_buf.get_all_moves::<true>(state, state.player);
+
+        if move_buf.is_zugzwang() {
             return 0;
         }
 
         let mut best_move = None;
 
         while let Some(next_move) =
-            self.move_buf
-                .get_next_move(depth, last_move_pos, self.killer_table.get(depth))
+            move_buf.get_next_move(last_move_pos, depth, state.player, &mut self.move_orderer)
         {
             if let Move::Move {
                 captured_piece: Some(Piece::King),
@@ -182,7 +195,7 @@ impl ChessEngine
             self.state_cache.insert_entry(MoveEntry {
                 hash: state.hash,
                 mov,
-                depth: depth as u8,
+                depth: self.quiescence_depth as u8,
                 value: alpha,
             });
         }
@@ -221,26 +234,38 @@ impl ChessEngine
             return value;
         }
 
-        if allow_null_move && null_move_count != NULL_MOVES_PER_BRANCH && depth > self.quiescence_depth + 1{
+        if allow_null_move
+            && null_move_count != NULL_MOVES_PER_BRANCH
+            && depth > self.quiescence_depth + 1
+        {
             state.change_player(&self.zoborist_state);
 
-            let next_val = -self.calc(state, -beta, -beta+1, depth - 1 - NULL_MOVE_DEPTH_REDUCTION, last_move_pos, false, null_move_count + 1, false);
+            let next_val = -self.calc(
+                state,
+                -beta,
+                -beta + 1,
+                depth - 1 - NULL_MOVE_DEPTH_REDUCTION,
+                last_move_pos,
+                false,
+                null_move_count + 1,
+                false,
+            );
 
             state.change_player(&self.zoborist_state);
 
             if next_val >= beta {
                 self.stats.null_move_fail_highs += 1;
                 return next_val;
-            }            
+            }
         }
 
         let mut value = -eval::WIN_THRESHOLD;
 
-        self.move_buf.clear(depth);
-        self.move_buf
-            .get_all_moves::<true>(state, state.player, depth);
+        let mut move_buf = MoveBuffer::default();
+        // move_buf.clear(depth);
+        move_buf.get_all_moves::<true>(state, state.player);
 
-        if self.move_buf.is_zugzwang(depth) {
+        if move_buf.is_zugzwang() {
             return 0;
         }
 
@@ -251,10 +276,12 @@ impl ChessEngine
         // self.move_buf.sort(depth, last_move_pos, self.killer_table.get(depth));
 
         while let Some(next_move) =
-            self.move_buf
-                .get_next_move(depth, last_move_pos, self.killer_table.get(depth))
+            move_buf.get_next_move(last_move_pos, depth, state.player, &mut self.move_orderer)
         {
             // while let Some(next_move) = self.move_buf.pop(depth){
+            if is_root {
+                println!("{}", next_move);
+            }
             if let Move::Move {
                 captured_piece: Some(Piece::King),
                 ..
@@ -288,13 +315,22 @@ impl ChessEngine
             //     -self.calc(state, -beta, -alpha, depth - 1, last_move_pos, true)
             // } else if next_move.is_capture() {
             //     -self.quiescence(state, -beta, -alpha, depth - 1, last_move_pos)
-            //     // Self::scoring_function(state)                
+            //     // Self::scoring_function(state)
             // }
             // else {
             //     -Self::scoring_function(state)
             // };
-            
-            let next_val = -self.calc(state, -beta, -alpha, depth - 1, last_move_pos, true, null_move_count, false);
+
+            let next_val = -self.calc(
+                state,
+                -beta,
+                -alpha,
+                depth - 1,
+                last_move_pos,
+                true,
+                null_move_count,
+                false,
+            );
 
             state.apply_meta_hash(&self.zoborist_state);
             state.revert_state(next_move, &self.zoborist_state);
@@ -314,6 +350,11 @@ impl ChessEngine
                 best_move = Some(next_move);
             }
             // value = i32::max(value, next_val);
+            if is_root {
+                self.calculated_moves
+                    .insert(ValueMovePair(next_val as i32, next_move));
+            }
+
             if value >= beta {
                 break;
             }
@@ -329,11 +370,6 @@ impl ChessEngine
             //     }
             //     beta = i32::min(beta, value);
             // }
-
-            if is_root {
-                self.calculated_moves
-                    .insert(ValueMovePair(next_val as i32, next_move));
-            }
         }
 
         if let Some(mov) = best_move {
@@ -343,6 +379,11 @@ impl ChessEngine
                 depth: depth as u8,
                 value,
             });
+            self.move_orderer.update_history(
+                mov,
+                state.player,
+                depth - self.quiescence_depth + 1,
+            );
         }
         if let Some(Move::Move {
             captured_piece: None,
@@ -350,7 +391,7 @@ impl ChessEngine
         }) = best_move
         {
             if let Some(best_move) = best_move {
-                self.killer_table.insert(best_move, depth);
+                self.move_orderer.insert_killer_move(best_move, depth);
             }
         }
 
@@ -362,7 +403,25 @@ impl ChessEngine
         let mut state = state.clone();
         state.setup(&self.zoborist_state);
         self.calculated_moves.clear();
-        self.calc(&mut state, -eval::WIN_THRESHOLD, eval::WIN_THRESHOLD, depth + self.quiescence_depth, 0, true, 0, true)
+        let result = self.calc(
+            &mut state,
+            -eval::WIN_THRESHOLD,
+            eval::WIN_THRESHOLD,
+            depth + self.quiescence_depth,
+            0,
+            true,
+            0,
+            true,
+        );
+        if state.player == Player::Black {
+            let mut new_moves: BTreeSet<ValueMovePair> = Default::default();
+            for item in self.calculated_moves.iter() {
+                let new_item = ValueMovePair(item.0 * -1, item.1);
+                new_moves.insert(new_item);
+            }
+            self.calculated_moves = new_moves;
+        }
+        result
     }
 
     pub fn get_result(&mut self) {
@@ -371,35 +430,32 @@ impl ChessEngine
             println!("{}: {}", value, m);
         }
     }
-    
-    pub fn perft(&mut self, state: &mut GameState, depth: usize) -> i64 {       
-        self.move_buf.clear(depth);
-        self.move_buf
-            .get_all_moves::<true>(state, state.player, depth);
-        
-        if self.move_buf.is_zugzwang(depth) {
+
+    pub fn perft(&mut self, state: &mut GameState, depth: usize) -> i64 {
+        let mut move_buf = MoveBuffer::default();
+        // move_buf.clear(depth);
+        move_buf.get_all_moves::<true>(state, state.player);
+
+        if move_buf.is_zugzwang() {
             return 0;
         }
-        
-        if !self.move_buf.is_legal(depth) {
+
+        if !move_buf.is_legal() {
             // println!("hi2");
             return -1;
         }
-        
+
         if depth == 0 {
             return 1;
         }
-        
+
         let mut cnt = 0;
 
         // println!("hi");
 
         let mut has_legal_child = false;
 
-        while let Some(next_move) =
-            self.move_buf
-                .pop(depth)
-        {
+        while let Some(next_move) = move_buf.pop() {
             let meta = (state.states[0].meta, state.states[1].meta);
             state.advance_state(next_move, &self.zoborist_state);
 
@@ -415,7 +471,7 @@ impl ChessEngine
         }
 
         // if no legal children, it is a checkmate
-        if !has_legal_child{
+        if !has_legal_child {
             cnt = 1;
         }
 

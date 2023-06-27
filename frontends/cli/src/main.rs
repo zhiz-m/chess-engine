@@ -1,7 +1,7 @@
-use std::{time::{SystemTime, Duration}, fs::File, io::Read, sync::mpsc, thread};
+use std::{time::{SystemTime, Duration}, fs::File, io::Read, thread};
 
-use chess_engine_core::{ChessEngine, PlayerState, GameState, Player, evaluate};
-use clap::{Parser};
+use chess_engine_core::{ChessEngine, GameState, evaluate};
+use clap::Parser;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

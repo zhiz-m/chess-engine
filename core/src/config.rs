@@ -1,5 +1,6 @@
 // consts: do not change
 pub const NUM_PIECES: usize = 6;
+pub const MAX_CHILDREN_PER_NODE: usize = 256;
 
 // may be changed
 pub type HashType = u64;

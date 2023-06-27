@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use serde::{Deserialize, de::Error};
 
-use crate::{util, config::PIECE_SCORES, killer_table::KillerEntry};
+use crate::{util, config::PIECE_SCORES, move_orderer::KillerEntry};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Player {
@@ -55,7 +55,7 @@ pub enum Piece {
 }
 
 impl Piece {
-    fn value(self) -> i32 {
+    pub fn value(self) -> i32 {
         // [1, 3, 3, 5, 9, 1_000_000_000]
         PIECE_SCORES[self as usize]
     }
