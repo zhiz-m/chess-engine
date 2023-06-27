@@ -1,4 +1,6 @@
 use std::fmt::Display;
+use serde::{Deserialize, de::Error};
+
 use crate::{util, config::PIECE_SCORES, killer_table::KillerEntry};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -13,6 +15,31 @@ impl Player {
             Player::Black
         } else {
             Player::White
+        }
+    }
+}
+
+impl TryFrom<&str> for Player{
+    type Error = &'static str;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value.to_lowercase().as_str(){
+            "white" => Player::White,
+            "black" => Player::Black,
+            _ => return Err("invalid player string")
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for Player{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+        let s = String::deserialize(deserializer)?;
+        match s.to_lowercase().as_str(){
+            "white" => Ok(Player::White),
+            "black" => Ok(Player::Black),
+            _ => Err(D::Error::custom("invalid player"))
         }
     }
 }
@@ -58,6 +85,22 @@ impl From<usize> for Piece {
             5 => Piece::King,
             _ => unreachable!(),
         }
+    }
+}
+
+impl TryFrom<&str> for Piece{
+    type Error = &'static str;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value.to_lowercase().as_str(){
+            "pawn" => Piece::Pawn,
+            "knight" => Piece::Knight,
+            "bishop" => Piece::Bishop,
+            "rook" => Piece::Rook,
+            "queen" => Piece::Queen,
+            "king" => Piece::King,
+            _ => return Err("invalid piece string")
+        })
     }
 }
 

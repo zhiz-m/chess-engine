@@ -1,0 +1,25 @@
+{
+    "states": {
+        "white": {
+            "pieces":{
+                "pawn": ["a3", "b2", "c3", "d3", "f2", "g3", "h2"],
+                "knight": ["g5"],
+                "bishop": ["g2", "h6"],
+                "rook": ["e1", "e6"],
+                "queen": ["f4"],
+                "king": ["g1"]
+            } 
+        },
+        "black": {
+            "pieces":{
+                "pawn": ["a7", "b5", "c5", "d4", "f5", "g6", "h7"],
+                "knight": ["c6"],
+                "bishop": ["h8", "b7"],
+                "rook": ["d7", "c8"],
+                "queen": ["d8"],
+                "king": ["g8"]
+            }
+        }
+    },
+    "player": "white"
+}

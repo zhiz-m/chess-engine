@@ -1,13 +1,16 @@
 use rand::Rng;
+use serde::{Deserialize, Deserializer};
+use serde::de::Error;
 
 use crate::{
     config::{HashType, NUM_PIECES, PIECE_SCORES},
     types::{Move, Piece, Player},
     util::{self, pos_to_coord, coord_to_pos},
 };
+use std::collections::BTreeMap;
 use std::hash::Hash;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Grid(pub u64);
 
 impl<'a, T> From<T> for Grid
@@ -30,26 +33,43 @@ impl Grid{
 }
 
 // cheap, copyable player state
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Deserialize)]
 pub struct PlayerMetadata {
     pub can_castle_short: bool,
     pub can_castle_long: bool,
 }
 
-impl PlayerMetadata {
-    pub fn new() -> PlayerMetadata {
-        PlayerMetadata {
-            can_castle_short: true,
-            can_castle_long: true,
-        }
+impl Default for PlayerMetadata{
+    fn default() -> Self {
+        Self { can_castle_short: true, can_castle_long: true }
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 pub struct PlayerState {
+    #[serde(deserialize_with = "from_string_vec")]
     pub pieces: [Grid; NUM_PIECES],
+    #[serde(default)]
     pub piece_grid: u64,
+    #[serde(default)]
     pub meta: PlayerMetadata,
+}
+
+fn from_string_vec<'de, D>(deserializer: D) -> Result<[Grid; NUM_PIECES], D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let pieces: BTreeMap::<String, Vec<String>> = Deserialize::deserialize(deserializer)?;
+
+    let mut res = [Grid(0); NUM_PIECES];
+
+    for (piece, pos) in pieces.into_iter(){
+        let piece: Piece = piece.as_str().try_into().map_err(D::Error::custom)?;
+        let grid: Grid = pos.iter().map(|x|x.as_str()).into();
+        res[piece as usize] = grid;
+    }
+
+    Ok(res)
 }
 
 impl PlayerState {
@@ -74,29 +94,34 @@ impl PlayerState {
                 ],
             },
             piece_grid: 0xffff00000000ffff,
-            meta: PlayerMetadata::new(),
+            meta: PlayerMetadata::default(),
         }
     }
 
-    pub fn new_from_state(pos: [Vec<&str>; 6]) -> PlayerState {
+    pub fn new_from_state(pos: Vec<Vec<&str>>) -> Option<PlayerState> {
+        if pos.len() != 6{
+            return None;
+        }
         let pieces: [Grid; 6] = pos
             .into_iter()
             .map(Into::<Grid>::into)
             .collect::<Vec<Grid>>()
             .try_into()
             .unwrap();
-        let mut piece_grid = 0;
-        for grid in pieces.iter().take(NUM_PIECES) {
-            for j in 0..64 {
-                if (1u64 << j) & grid.0 > 0 {
-                    piece_grid |= 1u64 << j;
-                }
-            }
-        }
-        PlayerState {
+        let mut res = PlayerState {
             pieces,
-            piece_grid,
-            meta: PlayerMetadata::new(),
+            piece_grid: 0,
+            meta: PlayerMetadata::default(),
+        };
+        res.setup();
+
+        Some(res)
+    }
+
+    pub fn setup(&mut self){
+        self.piece_grid = 0;
+        for grid in self.pieces.iter().take(NUM_PIECES) {
+            self.piece_grid |= grid.0;
         }
     }
 
@@ -150,11 +175,29 @@ impl ZoboristState {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 pub struct GameState {
+    #[serde(deserialize_with = "from_player_vec")]
     pub states: [PlayerState; 2],
     pub player: Player,
+    #[serde(default)]
     pub hash: HashType,
+}
+
+fn from_player_vec<'de, D>(deserializer: D) -> Result<[PlayerState; 2], D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let states: BTreeMap::<String, PlayerState> = Deserialize::deserialize(deserializer)?;
+
+    let mut res = [PlayerState::new(Player::White), PlayerState::new(Player::White)];
+
+    for (player, state) in states.into_iter(){
+        let player: Player = player.as_str().try_into().map_err(D::Error::custom)?;
+        res[player as usize] = state;
+    }
+
+    Ok(res)
 }
 
 impl Hash for GameState {
@@ -231,7 +274,7 @@ impl GameState {
         self.hash ^= zoborist_state.pieces[player as usize][piece as usize][pos as usize];
     }
 
-    fn change_player(&mut self, zoborist_state: &ZoboristState) {
+    pub fn change_player(&mut self, zoborist_state: &ZoboristState) {
         self.hash ^= zoborist_state.is_black;
         self.player = self.player.opp();
     }
@@ -252,7 +295,7 @@ impl GameState {
     }
 
     // zoborist hash
-    pub fn slow_compute_hash(&mut self, zoborist_state: &ZoboristState) {
+    fn slow_compute_hash(&mut self, zoborist_state: &ZoboristState) {
         self.apply_meta_hash(zoborist_state);
         for player in [Player::White, Player::Black] {
             for piece in [
@@ -270,6 +313,11 @@ impl GameState {
                 }
             }
         }
+    }
+
+    pub fn setup(&mut self, zoborist_state: &ZoboristState){
+        self.states.iter_mut().for_each(|x|x.setup());
+        self.slow_compute_hash(zoborist_state);
     }
 
     pub fn get_state(&self, player: Player) -> &PlayerState {
