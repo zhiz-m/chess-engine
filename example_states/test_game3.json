@@ -2,11 +2,11 @@
     "states": {
         "white": {
             "pieces":{
-                "pawn": ["a2", "b2", "c2", "f2", "g2", "h2"],
-                "knight": ["c3"],
-                "bishop": ["e3", "c4"],
-                "rook": ["a1", "f1"],
-                "queen": ["f3"],
+                "pawn": ["a3", "b2", "c2", "g3", "g2", "h3"],
+                "knight": [],
+                "bishop": ["d4"],
+                "rook": ["f1", "e5"],
+                "queen": [],
                 "king": ["g1"]
             },
             "meta":{
@@ -16,16 +16,16 @@
         },
         "black": {
             "pieces":{
-                "pawn": ["a6", "d5", "e6", "f7", "g7", "h6"],
-                "knight": ["f6"],
-                "bishop": ["c8", "f8"],
-                "rook": ["a8", "h8"],
-                "queen": ["d8"],
-                "king": ["e8"]
+                "pawn": ["a5", "c4", "e6", "f7", "g6", "h6"],
+                "knight": ["d5"],
+                "bishop": [],
+                "rook": ["b8", "c8"],
+                "queen": [],
+                "king": ["e7"]
             },
             "meta":{
-                "can_castle_long": true,
-                "can_castle_short": true
+                "can_castle_long": false,
+                "can_castle_short": false
             }
         }
     },
