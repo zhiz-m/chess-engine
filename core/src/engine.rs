@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fmt::Display};
+use std::fmt::Display;
 
 use crate::{
     config::{MOVE_TABLE_SIZE, NULL_MOVES_PER_BRANCH, NULL_MOVE_DEPTH_REDUCTION},
@@ -109,20 +109,20 @@ impl ChessEngine {
             return stand_pat;
         }
         self.stats.quiescence_nodes += 1;
-        if (self.stats.quiescence_nodes + self.stats.nodes_explored) % 100000 == 0 {
-            println!(
-                "explored {} nodes, {}/{} normal/quiescence nodes, alpha: {}, beta: {}, cached_moves: {}, current_score: {}, max_depth_encountered: {}",
-                self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.nodes_explored, self.stats.quiescence_nodes, alpha, beta, self.stats.cache_hits, eval::evaluate(state), self.stats.max_depth_encountered
-            );
-        }
+        // if (self.stats.quiescence_nodes + self.stats.nodes_explored) % 100000 == 0 {
+        //     println!(
+        //         "explored {} nodes, {}/{} normal/quiescence nodes, alpha: {}, beta: {}, cached_moves: {}, current_score: {}, max_depth_encountered: {}",
+        //         self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.nodes_explored, self.stats.quiescence_nodes, alpha, beta, self.stats.cache_hits, eval::evaluate(state), self.stats.max_depth_encountered
+        //     );
+        // }
 
         if stand_pat >= beta {
             return beta;
         }
 
-        let move_entry =
-            self.state_cache
-                .get_entry(state.hash, self.quiescence_depth as u8, state);
+        let move_entry = self
+            .state_cache
+            .get_entry(state.hash, self.quiescence_depth as u8, state);
 
         if let Some(MoveEntry { value, .. }) = move_entry {
             self.stats.cache_hits += 1;
@@ -226,17 +226,16 @@ impl ChessEngine {
         }
 
         self.stats.nodes_explored += 1;
-        if (self.stats.quiescence_nodes + self.stats.nodes_explored) % 100000 == 0 {
-            println!(
-                "explored {} nodes, {}/{} normal/quiescence nodes, alpha: {}, beta: {}, cached_moves: {}, current_score: {}, max_depth_encountered: {}",
-                self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.nodes_explored, self.stats.quiescence_nodes, alpha, beta, self.stats.cache_hits, eval::evaluate(state), self.stats.max_depth_encountered
-            );
-        }
+        // if (self.stats.quiescence_nodes + self.stats.nodes_explored) % 100000 == 0 {
+        //     println!(
+        //         "explored {} nodes, {}/{} normal/quiescence nodes, alpha: {}, beta: {}, cached_moves: {}, current_score: {}, max_depth_encountered: {}",
+        //         self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.nodes_explored, self.stats.quiescence_nodes, alpha, beta, self.stats.cache_hits, eval::evaluate(state), self.stats.max_depth_encountered
+        //     );
+        // }
 
-        let move_entry =
-        self.state_cache
+        let move_entry = self
+            .state_cache
             .get_entry(state.hash, self.quiescence_depth as u8, state);
-
 
         // transposition table hit
         if let Some(MoveEntry { value, .. }) = move_entry {
@@ -293,22 +292,32 @@ impl ChessEngine {
             state.player,
             move_entry.map(|x| x.mov),
             &mut self.move_orderer,
-        )
-        {
+        ) {
             // while let Some(next_move) = self.move_buf.pop(depth){
             if is_root {
-                println!("{}", next_move);
+                // println!("{}", next_move);
             }
+            let try_store_move = |engine: &mut Self, next_val| {
+                if is_root {
+                    if engine
+                        .calculated_moves
+                        .iter()
+                        .find(|x| x.0 == next_val)
+                        .is_none()
+                    {
+                        engine
+                            .calculated_moves
+                            .push(ValueMovePair(next_val, next_move));
+                    }
+                }
+            };
             if let Move::Move {
                 captured_piece: Some(Piece::King),
                 ..
             } = next_move
             {
-                let result = eval::WIN_THRESHOLD;
-                if depth == 0 {
-                    self.calculated_moves
-                        .push(ValueMovePair(result as i32, next_move));
-                }
+                let result = eval::WIN_THRESHOLD - 1;
+                try_store_move(self, result);
                 return result;
             }
             // do the state transition
@@ -367,16 +376,11 @@ impl ChessEngine {
                 best_move = Some(next_move);
             }
             // value = i32::max(value, next_val);
-            
+
             if value >= beta {
                 break;
             }
-            if is_root {
-                if self.calculated_moves.iter().find(|x|x.0 == next_val).is_none(){
-                    self.calculated_moves
-                        .push(ValueMovePair(next_val, next_move));
-                }
-            }
+            try_store_move(self, next_val);
             alpha = i32::max(alpha, value);
             // } else {
             //     // value = i32::min(value, next_val);
@@ -443,6 +447,14 @@ impl ChessEngine {
             self.calculated_moves.sort();
         }
         result
+    }
+
+    pub fn get_best_calculated_move(&mut self, player: Player) -> Option<Move> {
+        self.calculated_moves.sort();
+        match player {
+            Player::White => self.calculated_moves.last().map(|pair| pair.1),
+            Player::Black => self.calculated_moves.first().map(|pair| pair.1),
+        }
     }
 
     pub fn get_result(&mut self) {

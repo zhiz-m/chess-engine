@@ -1,7 +1,7 @@
+use serde::{de::Error, Deserialize};
 use std::fmt::Display;
-use serde::{Deserialize, de::Error};
 
-use crate::{util, config::PIECE_SCORES, move_orderer::KillerEntry};
+use crate::{config::PIECE_SCORES, move_orderer::KillerEntry, util};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Player {
@@ -19,27 +19,40 @@ impl Player {
     }
 }
 
-impl TryFrom<&str> for Player{
+impl TryFrom<char> for Player {
     type Error = &'static str;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Ok(match value.to_lowercase().as_str(){
-            "white" => Player::White,
-            "black" => Player::Black,
-            _ => return Err("invalid player string")
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        Ok(match value.to_ascii_lowercase() {
+            'w' => Player::White,
+            'b' => Player::Black,
+            _ => return Err("invalid player char"),
         })
     }
 }
 
-impl<'de> Deserialize<'de> for Player{
+impl TryFrom<&str> for Player {
+    type Error = &'static str;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value.to_lowercase().as_str() {
+            "white" => Player::White,
+            "black" => Player::Black,
+            _ => return Err("invalid player string"),
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for Player {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de> {
+        D: serde::Deserializer<'de>,
+    {
         let s = String::deserialize(deserializer)?;
-        match s.to_lowercase().as_str(){
+        match s.to_lowercase().as_str() {
             "white" => Ok(Player::White),
             "black" => Ok(Player::Black),
-            _ => Err(D::Error::custom("invalid player"))
+            _ => Err(D::Error::custom("invalid player")),
         }
     }
 }
@@ -88,18 +101,34 @@ impl From<usize> for Piece {
     }
 }
 
-impl TryFrom<&str> for Piece{
+impl TryFrom<char> for Piece {
+    type Error = &'static str;
+
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        Ok(match value.to_ascii_lowercase() {
+            'p' => Piece::Pawn,
+            'n' => Piece::Knight,
+            'b' => Piece::Bishop,
+            'r' => Piece::Rook,
+            'q' => Piece::Queen,
+            'k' => Piece::King,
+            _ => return Err("invalid piece char"),
+        })
+    }
+}
+
+impl TryFrom<&str> for Piece {
     type Error = &'static str;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Ok(match value.to_lowercase().as_str(){
+        Ok(match value.to_lowercase().as_str() {
             "pawn" => Piece::Pawn,
             "knight" => Piece::Knight,
             "bishop" => Piece::Bishop,
             "rook" => Piece::Rook,
             "queen" => Piece::Queen,
             "king" => Piece::King,
-            _ => return Err("invalid piece string")
+            _ => return Err("invalid piece string"),
         })
     }
 }
@@ -137,6 +166,10 @@ pub enum Move {
         promoted_to_piece: Piece,
         captured_piece: Option<Piece>,
     },
+    EnPassant {
+        prev_column: u8,
+        new_column: u8,
+    },
 }
 
 impl Move {
@@ -161,13 +194,13 @@ impl Move {
                         (3, piece.value() - captured_piece.value())
                     }
                     // captures worth the same material are slightly preferred over non-killer silent moves
-                    else {(4,piece.value() - captured_piece.value()-1)}
-                } 
-                else if killer_entry.contains(self){
+                    else {
+                        (4, piece.value() - captured_piece.value() - 1)
+                    }
+                } else if killer_entry.contains(self) {
                     // println!("killer move");
-                    (4,-2)
-                }
-                else {
+                    (4, -2)
+                } else {
                     (4, 0)
                 }
             }
@@ -175,13 +208,20 @@ impl Move {
             Move::PawnPromote {
                 promoted_to_piece, ..
             } => (2, -promoted_to_piece.value()),
+            Move::EnPassant { .. } => (3, 1),
         }
     }
 
-    pub fn is_capture(self) -> bool{
-        match self{
-            Move::Move { captured_piece: Some(_), .. } => true,
-            Move::PawnPromote { captured_piece: Some(_), .. } => true,
+    pub fn is_capture(self) -> bool {
+        match self {
+            Move::Move {
+                captured_piece: Some(_),
+                ..
+            } => true,
+            Move::PawnPromote {
+                captured_piece: Some(_),
+                ..
+            } => true,
             _ => false,
         }
     }
@@ -248,6 +288,15 @@ impl Display for Move {
                     promoted_to_piece
                 )
             }
+            Move::EnPassant {
+                prev_column,
+                new_column,
+            } => {
+                format!(
+                    "En passant from column {} to column {}",
+                    prev_column, new_column
+                )
+            }
         };
         f.write_str(&result)
     }
@@ -267,4 +316,3 @@ impl Ord for ValueMovePair {
         self.0.cmp(&other.0)
     }
 }
-
