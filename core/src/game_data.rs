@@ -145,13 +145,13 @@ impl PlayerState {
         };
 
         for char in parts[0].chars() {
-            if row < 0 || column > 7 {
-                return Err("invalid fen");
-            }
             if char == '/' {
                 row -= 1;
                 column = 0;
                 continue;
+            }
+            if row < 0 || column > 7 {
+                return Err("invalid fen");
             }
             if let Some(num) = char.to_digit(10) {
                 column += num as i8;
@@ -164,7 +164,7 @@ impl PlayerState {
 
                 state.pieces[piece as usize].0 |= 1 << pos;
             }
-            row += 1
+            column += 1
         }
 
         state.meta.can_castle_long = false;
@@ -246,6 +246,10 @@ impl ZoboristState {
         state.is_black = /*((rng.gen::<u64>() as HashType) << 64) +*/ rng.gen::<u64>() as HashType;
 
         for num in state.castle.iter_mut().flatten().flatten().flatten() {
+            *num = /*((rng.gen::<u64>() as HashType) << 64) + */rng.gen::<u64>() as HashType;
+        }
+
+        for num in state.en_passant.iter_mut() {
             *num = /*((rng.gen::<u64>() as HashType) << 64) + */rng.gen::<u64>() as HashType;
         }
 
@@ -350,6 +354,8 @@ impl GameState {
                 state.pieces[Piece::Pawn as usize].contains_pos(prev_pos)
                     && opp_state.pieces[captured_piece as usize].contains_pos(new_pos)
             }
+            // todo: maybe make this better
+            Move::EnPassant { new_column, .. } => self.en_passant_column == Some(new_column),
         }
     }
 
@@ -368,23 +374,16 @@ impl GameState {
     }
 
     pub fn new_from_fen(fen: &str) -> Result<Self, &'static str> {
-        let mut parts = fen.split(' ');
+        let parts: Vec<_> = fen.split(' ').collect();
         Ok(Self::new_from_state(
             PlayerState::new_from_fen(Player::White, fen)?,
             PlayerState::new_from_fen(Player::Black, fen)?,
-            match parts.nth(3).ok_or("invalid fen")?.chars().nth(0).ok_or("invalid fen")? {
+            match parts[3].chars().nth(0).ok_or("invalid fen")? {
                 '-' => None,
                 x if ('a'..='h').contains(&x) => Some(x as u8 - 'a' as u8),
-                _ => return Err("invalid en passant value in fen")
+                _ => return Err("invalid en passant value in fen"),
             },
-            Player::try_from(
-                parts
-                    .nth(1)
-                    .ok_or("invalid fen")?
-                    .chars()
-                    .nth(0)
-                    .ok_or("invalid fen")?,
-            )?,
+            Player::try_from(parts[1].chars().nth(0).ok_or("invalid fen")?)?,
         ))
     }
 
@@ -393,7 +392,7 @@ impl GameState {
             [self.states[0].meta.can_castle_short as usize]
             [self.states[1].meta.can_castle_long as usize]
             [self.states[1].meta.can_castle_short as usize];
-        if let Some(en_passant_column) = self.en_passant_column{
+        if let Some(en_passant_column) = self.en_passant_column {
             self.hash ^= zoborist_state.en_passant[en_passant_column as usize]
         }
     }
@@ -467,6 +466,9 @@ impl GameState {
         next_move: Move,
         zoborist_state: &ZoboristState,
     ) {
+        if APPLY_METADATA_CHANGES {
+            self.en_passant_column = None;
+        }
         let offset = if self.player == Player::White { 0 } else { 56 };
         match next_move {
             Move::Move {
@@ -502,6 +504,11 @@ impl GameState {
                     }
                     if piece == Piece::King || (piece == Piece::Rook && prev_pos == 7 + offset) {
                         player_state.meta.can_castle_short = false;
+                    }
+
+                    // potential en passant next move
+                    if piece == Piece::Pawn && i32::abs(prev_pos as i32 - new_pos as i32) == 16 {
+                        self.en_passant_column = Some(prev_pos & 0b111);
                     }
                 }
             }
@@ -587,6 +594,36 @@ impl GameState {
                 self.apply_piece_move(zoborist_state, self.player, Piece::Pawn, prev_pos);
                 self.apply_piece_move(zoborist_state, self.player, promoted_to_piece, new_pos);
             }
+            Move::EnPassant {
+                prev_column,
+                new_column,
+            } => {
+                let captured_pawn_pos = if self.player == Player::White {
+                    32 + new_column
+                } else {
+                    24 + new_column
+                };
+                let prev_pos = if self.player == Player::White {
+                    32 + prev_column
+                } else {
+                    24 + prev_column
+                };
+                let new_pos = if self.player == Player::White {
+                    40 + new_column
+                } else {
+                    16 + new_column
+                };
+                self.apply_piece_move(
+                    zoborist_state,
+                    self.player.opp(),
+                    Piece::Pawn,
+                    captured_pawn_pos,
+                );
+
+                // move the current piece
+                self.apply_piece_move(zoborist_state, self.player, Piece::Pawn, prev_pos);
+                self.apply_piece_move(zoborist_state, self.player, Piece::Pawn, new_pos);
+            }
         }
     }
 
@@ -610,6 +647,14 @@ impl GameState {
         } else if piece == Piece::King && i32::abs(prev_pos as i32 - new_pos as i32) == 2 {
             Move::Castle {
                 is_short: new_pos > prev_pos,
+            }
+        } else if piece == Piece::Pawn
+            && (new_pos & 0b111 != prev_pos & 0b111)
+            && captured_piece == None
+        {
+            Move::EnPassant {
+                prev_column: prev_pos & 0b111,
+                new_column: new_pos & 0b111,
             }
         } else {
             Move::Move {

@@ -110,7 +110,6 @@ impl MoveBuffer {
         }
     }
 
-    // todo: enpassant
     pub fn get_move_by_piece<const TYPE: bool>(
         &mut self,
         state: &GameState,
@@ -163,6 +162,17 @@ impl MoveBuffer {
                                 player,
                             );
                         }
+                        if state.en_passant_column == Some((prev_pos & 0b111) - 1)
+                            && (prev_pos >> 3) == 4
+                        {
+                            self.emit_move::<TYPE>(
+                                Move::EnPassant {
+                                    prev_column: prev_pos & 0b111,
+                                    new_column: (prev_pos & 0b111) - 1,
+                                },
+                                player,
+                            )
+                        }
                     }
                     if (prev_pos & 0b111) < 7 {
                         if let Some(captured_piece) =
@@ -177,6 +187,17 @@ impl MoveBuffer {
                                 },
                                 player,
                             );
+                        }
+                        if state.en_passant_column == Some((prev_pos & 0b111) + 1)
+                            && (prev_pos >> 3) == 4
+                        {
+                            self.emit_move::<TYPE>(
+                                Move::EnPassant {
+                                    prev_column: prev_pos & 0b111,
+                                    new_column: (prev_pos & 0b111) + 1,
+                                },
+                                player,
+                            )
                         }
                     }
                 } else {
@@ -221,6 +242,17 @@ impl MoveBuffer {
                                 player,
                             );
                         }
+                        if state.en_passant_column == Some((prev_pos & 0b111) - 1)
+                            && (prev_pos >> 3) == 3
+                        {
+                            self.emit_move::<TYPE>(
+                                Move::EnPassant {
+                                    prev_column: prev_pos & 0b111,
+                                    new_column: (prev_pos & 0b111) - 1,
+                                },
+                                player,
+                            )
+                        }
                     }
                     if (prev_pos & 0b111) < 7 {
                         if let Some(captured_piece) =
@@ -235,6 +267,17 @@ impl MoveBuffer {
                                 },
                                 player,
                             );
+                        }
+                        if state.en_passant_column == Some((prev_pos & 0b111) + 1)
+                            && (prev_pos >> 3) == 3
+                        {
+                            self.emit_move::<TYPE>(
+                                Move::EnPassant {
+                                    prev_column: prev_pos & 0b111,
+                                    new_column: (prev_pos & 0b111) + 1,
+                                },
+                                player,
+                            )
                         }
                     }
                 }
@@ -367,8 +410,7 @@ impl MoveBuffer {
                             && !player_state.square_occupied(3 + offset)
                             && player_state.meta.can_castle_long))
                 {
-                    self.opp_move_grid = 0;
-                    self.get_all_moves::<false>(state, state.player.opp());
+                    self.get_squares_under_attack(state);
 
                     if !player_state.square_occupied(5 + offset)
                         && !player_state.square_occupied(6 + offset)
@@ -393,6 +435,16 @@ impl MoveBuffer {
             }
         }
     }
+
+    pub fn get_squares_under_attack(&mut self, state: &GameState){
+        self.opp_move_grid = 0;
+        self.get_all_moves::<false>(state, state.player.opp());
+    }
+
+    pub fn is_square_under_attack(&self, pos: u8) -> bool{
+        self.opp_move_grid & (1 << pos) > 0
+    }
+
     // overrides move_buf
     // todo: en-passant
     pub fn get_moves_by_piece_type<const TYPE: bool>(
@@ -447,7 +499,14 @@ impl MoveBuffer {
                 // x.unwrap()
                 //     .get_cmp_key(last_move_pos, killer_entry)
                 //     .cmp(&y.unwrap().get_cmp_key(last_move_pos, killer_entry))
-                move_orderer.cmp_move(x.unwrap(), y.unwrap(), depth, last_move_pos, player, transposition_move)
+                move_orderer.cmp_move(
+                    x.unwrap(),
+                    y.unwrap(),
+                    depth,
+                    last_move_pos,
+                    player,
+                    transposition_move,
+                )
             })?
             .take()
     }

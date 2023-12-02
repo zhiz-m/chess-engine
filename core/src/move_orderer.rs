@@ -70,6 +70,10 @@ impl MoveOrderer{
             Move::Castle{is_short: true} => if player == Player::White {Some((4, 6))} else {Some((60, 62))},
             Move::Castle{is_short: false} => if player == Player::White {Some((4, 2))} else {Some((60, 58))},
             Move::PawnPromote { prev_pos, new_pos, .. } => Some((prev_pos as usize, new_pos as usize)),
+            Move::EnPassant { prev_column, new_column } => Some(match player {
+                Player::White => (32 + prev_column as usize, 40 + new_column as usize),
+                Player::Black => (24 + prev_column as usize, 16 + new_column as usize),
+            }),
             _ => None
         }        
     }
@@ -122,6 +126,7 @@ impl MoveOrderer{
             Move::PawnPromote {
                 promoted_to_piece, ..
             } => (2, -promoted_to_piece.value()),
+            Move::EnPassant { .. } => (3, 1),
         }
     }
 

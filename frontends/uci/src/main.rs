@@ -2,7 +2,9 @@ use chess_engine_core::{
     canonical_to_pos, pos_to_coord, ChessEngine, GameState, Move, Piece, Player,
 };
 use std::io::{self, BufRead, Write};
-use vampirc_uci::{parse_one, UciInfoAttribute, UciMessage, UciMove, UciPiece, UciSquare, UciOptionConfig};
+use vampirc_uci::{
+    parse_one, UciInfoAttribute, UciMessage, UciMove, UciOptionConfig, UciPiece, UciSquare, UciSearchControl,
+};
 
 fn log_unnormalized_message(message: &UciMessage) {
     println!(
@@ -78,6 +80,13 @@ fn move_engine_to_uci(player: Player, mov: Move) -> UciMove {
             new_pos,
             Some(piece_engine_to_uci(promoted_to_piece)),
         ),
+        Move::EnPassant {
+            prev_column,
+            new_column,
+        } => match player {
+            Player::White => (32 + prev_column, 40 + new_column, None),
+            Player::Black => (24 + prev_column, 16 + new_column, None),
+        },
     };
     UciMove {
         from: pos_engine_to_uci(prev_pos),
@@ -86,20 +95,27 @@ fn move_engine_to_uci(player: Player, mov: Move) -> UciMove {
     }
 }
 
-const NAME : &'static str = "loglogn-bot";
-const AUTHOR : &'static str = "loglogn";
+const NAME: &'static str = "loglogn-bot";
+const AUTHOR: &'static str = "loglogn";
 
 fn main() {
     let mut engine = ChessEngine::new(10, 40, 42);
+
     let mut game_state = GameState::default();
     for line in io::stdin().lock().lines() {
         let msg: UciMessage = parse_one(&line.unwrap());
 
         match msg {
             UciMessage::Uci => {
-                println!("{}", UciMessage::Id { name: Some(NAME.to_owned()), author: Some(AUTHOR.to_owned()) });
+                println!(
+                    "{}",
+                    UciMessage::Id {
+                        name: Some(NAME.to_owned()),
+                        author: Some(AUTHOR.to_owned())
+                    }
+                );
                 println!("{}", UciMessage::UciOk);
-            },
+            }
             UciMessage::Debug(_) => log_unnormalized_message(&msg),
             UciMessage::IsReady => println!("{}", UciMessage::ReadyOk),
             UciMessage::Register { .. } => log_unnormalized_message(&msg),
@@ -131,7 +147,7 @@ fn main() {
             UciMessage::Stop => log_unnormalized_message(&msg),
             UciMessage::PonderHit => log_unnormalized_message(&msg),
             UciMessage::Quit => break,
-            UciMessage::Go { .. } => {
+            UciMessage::Go { time_control: _, search_control } => {
                 // let max_duration = Duration::from_secs(3);
                 // thread::scope(|s|{
                 //     let handle = s.spawn(|| {
@@ -146,9 +162,26 @@ fn main() {
                 //     thread::sleep(max_duration);
                 //     let mov = handle.join();
                 // });
-                engine.solve(&game_state, 6);
+                let depth = (|| {
+                    let search_control = search_control?;
+                    let depth = search_control.depth?;
+                    Some(depth)
+                }) ().unwrap_or(8);
+                println!(
+                    "{}",
+                    UciMessage::Info(vec![UciInfoAttribute::Any(
+                        "best score".to_owned(),
+                        format!("{}", engine.solve(&game_state, depth as usize))
+                    )])
+                );
                 let mov = engine.get_best_calculated_move(game_state.player).unwrap();
-                println!("{}", UciMessage::Info(vec![UciInfoAttribute::Any("best move".to_owned(), format!("{}", mov))]));
+                println!(
+                    "{}",
+                    UciMessage::Info(vec![UciInfoAttribute::Any(
+                        "best move".to_owned(),
+                        format!("{}", mov)
+                    )])
+                );
                 println!(
                     "{}",
                     UciMessage::BestMove {
@@ -167,7 +200,13 @@ fn main() {
             | UciMessage::Registration(_)
             | UciMessage::Option(_)
             | UciMessage::Info(_)
-            | UciMessage::Unknown(_, _) => println!("{}", UciMessage::Info(vec![UciInfoAttribute::Any("Unexpected message".to_owned(), format!("{}", msg))])),
+            | UciMessage::Unknown(_, _) => println!(
+                "{}",
+                UciMessage::Info(vec![UciInfoAttribute::Any(
+                    "Unexpected message".to_owned(),
+                    format!("{}", msg)
+                )])
+            ),
         }
 
         io::stdout().flush().unwrap();

@@ -1,6 +1,10 @@
 use crate::{config::NUM_PIECES, GameState, Player};
 
 pub const WIN_THRESHOLD: i32 = 1_000_000;
+pub const SCORE_AFTER_KING_CAPTURED_CUTOFF : i32 = (WIN_THRESHOLD * 3) / 2;
+pub const SCORE_AFTER_KING_CAPTURED: i32 = WIN_THRESHOLD * 2;
+pub const SCORE_MAX: i32 = WIN_THRESHOLD * 10;
+
 const KING_VALUE: i32 = 2_000_000;
 
 const PIECE_PHASE: [u32; NUM_PIECES] = [0, 1, 1, 2, 4, 0];

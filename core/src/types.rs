@@ -1,7 +1,7 @@
 use serde::{de::Error, Deserialize};
 use std::fmt::Display;
 
-use crate::{config::PIECE_SCORES, move_orderer::KillerEntry, util};
+use crate::{config::PIECE_SCORES, util};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Player {
@@ -173,58 +173,58 @@ pub enum Move {
 }
 
 impl Move {
-    pub fn get_cmp_key(self, last_move_pos: u8, killer_entry: KillerEntry) -> (u8, i32) {
-        match self {
-            Move::Move {
-                new_pos,
-                piece,
-                captured_piece,
-                ..
-            } => {
-                if let Some(captured_piece) = captured_piece {
-                    if captured_piece == Piece::King {
-                        (0, 0)
-                    }
-                    // else if piece.value() > captured_piece.value(){
-                    //     (5,0)
-                    // }
-                    else if new_pos == last_move_pos {
-                        (1, piece.value() - captured_piece.value())
-                    } else if piece.value() < captured_piece.value() {
-                        (3, piece.value() - captured_piece.value())
-                    }
-                    // captures worth the same material are slightly preferred over non-killer silent moves
-                    else {
-                        (4, piece.value() - captured_piece.value() - 1)
-                    }
-                } else if killer_entry.contains(self) {
-                    // println!("killer move");
-                    (4, -2)
-                } else {
-                    (4, 0)
-                }
-            }
-            Move::Castle { .. } => (4, 0),
-            Move::PawnPromote {
-                promoted_to_piece, ..
-            } => (2, -promoted_to_piece.value()),
-            Move::EnPassant { .. } => (3, 1),
-        }
-    }
+    // pub fn get_cmp_key(self, last_move_pos: u8, killer_entry: KillerEntry) -> (u8, i32) {
+    //     match self {
+    //         Move::Move {
+    //             new_pos,
+    //             piece,
+    //             captured_piece,
+    //             ..
+    //         } => {
+    //             if let Some(captured_piece) = captured_piece {
+    //                 if captured_piece == Piece::King {
+    //                     (0, 0)
+    //                 }
+    //                 // else if piece.value() > captured_piece.value(){
+    //                 //     (5,0)
+    //                 // }
+    //                 else if new_pos == last_move_pos {
+    //                     (1, piece.value() - captured_piece.value())
+    //                 } else if piece.value() < captured_piece.value() {
+    //                     (3, piece.value() - captured_piece.value())
+    //                 }
+    //                 // captures worth the same material are slightly preferred over non-killer silent moves
+    //                 else {
+    //                     (4, piece.value() - captured_piece.value() - 1)
+    //                 }
+    //             } else if killer_entry.contains(self) {
+    //                 // println!("killer move");
+    //                 (4, -2)
+    //             } else {
+    //                 (4, 0)
+    //             }
+    //         }
+    //         Move::Castle { .. } => (4, 0),
+    //         Move::PawnPromote {
+    //             promoted_to_piece, ..
+    //         } => (2, -promoted_to_piece.value()),
+    //         Move::EnPassant { .. } => (3, 1),
+    //     }
+    // }
 
-    pub fn is_capture(self) -> bool {
-        match self {
-            Move::Move {
-                captured_piece: Some(_),
-                ..
-            } => true,
-            Move::PawnPromote {
-                captured_piece: Some(_),
-                ..
-            } => true,
-            _ => false,
-        }
-    }
+    // pub fn is_capture(self) -> bool {
+    //     match self {
+    //         Move::Move {
+    //             captured_piece: Some(_),
+    //             ..
+    //         } => true,
+    //         Move::PawnPromote {
+    //             captured_piece: Some(_),
+    //             ..
+    //         } => true,
+    //         _ => false,
+    //     }
+    // }
 }
 
 impl Display for Move {

@@ -158,7 +158,7 @@ impl ChessEngine {
                 ..
             } = next_move
             {
-                let result = eval::WIN_THRESHOLD;
+                let result = eval::SCORE_AFTER_KING_CAPTURED;
                 return result;
             }
             // do the state transition
@@ -270,7 +270,7 @@ impl ChessEngine {
             }
         }
 
-        let mut value = -eval::WIN_THRESHOLD;
+        let mut value = -eval::SCORE_MAX;
 
         let mut move_buf = MoveBuffer::default();
         // move_buf.clear(depth);
@@ -295,7 +295,7 @@ impl ChessEngine {
         ) {
             // while let Some(next_move) = self.move_buf.pop(depth){
             if is_root {
-                // println!("{}", next_move);
+                println!("{}", next_move);
             }
             let try_store_move = |engine: &mut Self, next_val| {
                 if is_root {
@@ -316,14 +316,18 @@ impl ChessEngine {
                 ..
             } = next_move
             {
-                let result = eval::WIN_THRESHOLD - 1;
+                let result = eval::SCORE_AFTER_KING_CAPTURED;
                 try_store_move(self, result);
                 return result;
             }
             // do the state transition
             // let last_state = state.clone();
 
-            let meta = (state.states[0].meta, state.states[1].meta);
+            let meta = (
+                state.states[0].meta,
+                state.states[1].meta,
+                state.en_passant_column,
+            );
             state.apply_meta_hash(&self.zoborist_state);
             state.advance_state(next_move, &self.zoborist_state);
             state.apply_meta_hash(&self.zoborist_state);
@@ -364,6 +368,7 @@ impl ChessEngine {
             // revert metadata: easiest to do this way
             state.states[0].meta = meta.0;
             state.states[1].meta = meta.1;
+            state.en_passant_column = meta.2;
             state.apply_meta_hash(&self.zoborist_state);
 
             // if *state != last_state{
@@ -394,6 +399,24 @@ impl ChessEngine {
             //     beta = i32::min(beta, value);
             // }
         }
+        
+        // no legal moves
+        if best_move == None || value < -eval::SCORE_AFTER_KING_CAPTURED_CUTOFF{
+            // determine if currently in check
+            move_buf.clear();
+            move_buf.get_squares_under_attack(state);
+            for pos in 0u8..64 {
+                if state.get_state(state.player).pieces[Piece::King as usize].0 & (1u64 << pos) > 0 {
+                    if move_buf.is_square_under_attack(pos) {
+                        // checkmate
+                        return -eval::WIN_THRESHOLD - (depth as i32);
+                    }
+                }
+            }
+
+            // stalemate
+            return 0;
+        }
 
         if let Some(mov) = best_move {
             self.state_cache.insert_entry(MoveEntry {
@@ -423,10 +446,10 @@ impl ChessEngine {
         let mut state = state.clone();
         state.setup(&self.zoborist_state);
         self.calculated_moves.clear();
-        let result = self.calc(
+        let mut result = self.calc(
             &mut state,
-            -eval::WIN_THRESHOLD,
-            eval::WIN_THRESHOLD,
+            -eval::SCORE_MAX,
+            eval::SCORE_MAX,
             depth + self.quiescence_depth,
             0,
             true,
@@ -445,6 +468,7 @@ impl ChessEngine {
                 *val *= -1;
             }
             self.calculated_moves.sort();
+            result *= -1;
         }
         result
     }
