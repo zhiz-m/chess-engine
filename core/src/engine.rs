@@ -47,7 +47,7 @@ impl Display for EngineStatistics {
 
 pub struct ChessEngine {
     // state: GameState,
-    // move_buf: MoveBuffer,
+    move_bufs: Vec<MoveBuffer>,
     move_orderer: MoveOrderer,
     calculated_moves: Vec<ValueMovePair>,
     zoborist_state: ZoboristState,
@@ -73,7 +73,7 @@ impl ChessEngine {
         }
         // const BUF: Vec<Move> = vec![];
         ChessEngine {
-            // move_buf: MoveBuffer::new(normal_depth + quiescence_depth),
+            move_bufs: vec![MoveBuffer::default(); normal_depth + quiescence_depth],
             move_orderer: MoveOrderer::new(normal_depth + quiescence_depth),
             calculated_moves: Default::default(),
             zoborist_state: ZoboristState::new(zoborist_state_seed),
@@ -135,18 +135,18 @@ impl ChessEngine {
             alpha = stand_pat;
         }
 
-        let mut move_buf = MoveBuffer::default();
-
+        // let move_buf = &mut self.move_bufs[depth];
+        self.move_bufs[depth].clear();
         // self.move_buf.clear(depth);
-        move_buf.get_all_moves::<true>(state, state.player);
+        self.move_bufs[depth].get_all_moves::<true>(state, state.player);
 
-        if move_buf.is_zugzwang() {
+        if self.move_bufs[depth].is_zugzwang() {
             return 0;
         }
 
         let mut best_move = None;
 
-        while let Some(next_move) = move_buf.get_next_move(
+        while let Some(next_move) = self.move_bufs[depth].get_next_move(
             last_move_pos,
             depth,
             state.player,
@@ -172,7 +172,7 @@ impl ChessEngine {
                 if new_pos != last_move_pos {
                     continue;
                 }
-                let meta = (state.states[0].meta, state.states[1].meta);
+                let meta = (state.states[0].meta, state.states[1].meta, state.en_passant_column);
                 state.apply_meta_hash(&self.zoborist_state);
                 state.advance_state(next_move, &self.zoborist_state);
                 state.apply_meta_hash(&self.zoborist_state);
@@ -186,6 +186,7 @@ impl ChessEngine {
                 // revert metadata: easiest to do this way
                 state.states[0].meta = meta.0;
                 state.states[1].meta = meta.1;
+                state.en_passant_column = meta.2;
                 state.apply_meta_hash(&self.zoborist_state);
 
                 if score >= beta {
@@ -272,11 +273,12 @@ impl ChessEngine {
 
         let mut value = -eval::SCORE_MAX;
 
-        let mut move_buf = MoveBuffer::default();
+        // let mut move_buf = MoveBuffer::default();
         // move_buf.clear(depth);
-        move_buf.get_all_moves::<true>(state, state.player);
+        self.move_bufs[depth].clear();
+        self.move_bufs[depth].get_all_moves::<true>(state, state.player);
 
-        if move_buf.is_zugzwang() {
+        if self.move_bufs[depth].is_zugzwang() {
             return 0;
         }
 
@@ -286,7 +288,7 @@ impl ChessEngine {
 
         // self.move_buf.sort(depth, last_move_pos, self.killer_table.get(depth));
 
-        while let Some(next_move) = move_buf.get_next_move(
+        while let Some(next_move) = self.move_bufs[depth].get_next_move(
             last_move_pos,
             depth,
             state.player,
@@ -403,11 +405,11 @@ impl ChessEngine {
         // no legal moves
         if best_move == None || value < -eval::SCORE_AFTER_KING_CAPTURED_CUTOFF{
             // determine if currently in check
-            move_buf.clear();
-            move_buf.get_squares_under_attack(state);
+            self.move_bufs[depth].clear();
+            self.move_bufs[depth].get_squares_under_attack(state);
             for pos in 0u8..64 {
                 if state.get_state(state.player).pieces[Piece::King as usize].0 & (1u64 << pos) > 0 {
-                    if move_buf.is_square_under_attack(pos) {
+                    if self.move_bufs[depth].is_square_under_attack(pos) {
                         // checkmate
                         return -eval::WIN_THRESHOLD - (depth as i32);
                     }
@@ -490,15 +492,24 @@ impl ChessEngine {
     }
 
     pub fn perft(&mut self, state: &mut GameState, depth: usize) -> i64 {
-        let mut move_buf = MoveBuffer::default();
-        // move_buf.clear(depth);
-        move_buf.get_all_moves::<true>(state, state.player);
+        let move_entry = self
+            .state_cache
+            .get_entry_perft(state.hash, depth.try_into().unwrap(),);
 
-        if move_buf.is_zugzwang() {
+        if let Some(MoveEntry { value, .. }) = move_entry {
+            self.stats.cache_hits += 1;
+            return value as i64;
+        }
+        // let mut move_buf = MoveBuffer::default();
+        // move_buf.clear(depth);
+        self.move_bufs[depth].clear();
+        self.move_bufs[depth].get_all_moves::<true>(state, state.player);
+
+        if self.move_bufs[depth].is_zugzwang() {
             return 0;
         }
 
-        if !move_buf.is_legal() {
+        if !self.move_bufs[depth].is_legal() {
             // println!("hi2");
             return -1;
         }
@@ -513,25 +524,36 @@ impl ChessEngine {
 
         let mut has_legal_child = false;
 
-        while let Some(next_move) = move_buf.pop() {
-            let meta = (state.states[0].meta, state.states[1].meta);
+        while let Some(next_move) = self.move_bufs[depth].pop() {
+            let meta = (state.states[0].meta, state.states[1].meta, state.en_passant_column);
+            state.apply_meta_hash(&self.zoborist_state);
             state.advance_state(next_move, &self.zoborist_state);
+            state.apply_meta_hash(&self.zoborist_state);
 
             let res = self.perft(state, depth - 1);
             if res >= 0 {
                 cnt += res;
                 has_legal_child = true;
             }
-
+            state.apply_meta_hash(&self.zoborist_state);
             state.revert_state(next_move, &self.zoborist_state);
             state.states[0].meta = meta.0;
             state.states[1].meta = meta.1;
+            state.en_passant_column = meta.2;
+            state.apply_meta_hash(&self.zoborist_state);
         }
 
         // if no legal children, it is a checkmate
         if !has_legal_child {
             cnt = 1;
         }
+
+        self.state_cache.insert_entry(MoveEntry {
+            hash: state.hash,
+            mov: Move::Castle { is_short: false },
+            depth: depth.try_into().unwrap(),
+            value: cnt as i32,
+        });
 
         cnt
     }

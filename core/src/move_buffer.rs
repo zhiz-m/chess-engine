@@ -7,6 +7,7 @@ use crate::{
     util, GameState, Player,
 };
 
+#[derive(Clone)]
 pub struct MoveBuffer {
     opp_move_grid: u64,
     num_moves: usize,
@@ -56,6 +57,8 @@ impl MoveBuffer {
             self.move_buf[self.num_moves] = Some(next_move);
             self.num_moves += 1;
         } else if let Move::Move { new_pos, .. } = next_move {
+            // bugged: fix this.
+
             // opp move grid is for player squares that are under attack, is used to check if king can castle
             // note that we can count for pawn moves and pawn captures: this doesn't matter
             self.opp_move_grid |= 1u64 << new_pos;
@@ -436,12 +439,12 @@ impl MoveBuffer {
         }
     }
 
-    pub fn get_squares_under_attack(&mut self, state: &GameState){
+    pub fn get_squares_under_attack(&mut self, state: &GameState) {
         self.opp_move_grid = 0;
         self.get_all_moves::<false>(state, state.player.opp());
     }
 
-    pub fn is_square_under_attack(&self, pos: u8) -> bool{
+    pub fn is_square_under_attack(&self, pos: u8) -> bool {
         self.opp_move_grid & (1 << pos) > 0
     }
 
@@ -494,21 +497,13 @@ impl MoveBuffer {
     ) -> Option<Move> {
         self.move_buf[0..self.num_moves]
             .iter_mut()
-            .filter_map(|x| if x.is_some() { Some(x) } else { None })
+            .filter_map(|x| *x)
             .min_by(|x, y| {
                 // x.unwrap()
                 //     .get_cmp_key(last_move_pos, killer_entry)
                 //     .cmp(&y.unwrap().get_cmp_key(last_move_pos, killer_entry))
-                move_orderer.cmp_move(
-                    x.unwrap(),
-                    y.unwrap(),
-                    depth,
-                    last_move_pos,
-                    player,
-                    transposition_move,
-                )
-            })?
-            .take()
+                move_orderer.cmp_move(*x, *y, depth, last_move_pos, player, transposition_move)
+            })
     }
 
     pub fn clear(&mut self) {

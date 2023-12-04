@@ -1,9 +1,10 @@
 use chess_engine_core::{
     canonical_to_pos, pos_to_coord, ChessEngine, GameState, Move, Piece, Player,
 };
-use std::io::{self, BufRead, Write};
+use std::{io::{self, BufRead, Write}, time::SystemTime};
 use vampirc_uci::{
-    parse_one, UciInfoAttribute, UciMessage, UciMove, UciOptionConfig, UciPiece, UciSquare, UciSearchControl,
+    parse_one, UciInfoAttribute, UciMessage, UciMove, UciOptionConfig, UciPiece, UciSearchControl,
+    UciSquare,
 };
 
 fn log_unnormalized_message(message: &UciMessage) {
@@ -147,7 +148,10 @@ fn main() {
             UciMessage::Stop => log_unnormalized_message(&msg),
             UciMessage::PonderHit => log_unnormalized_message(&msg),
             UciMessage::Quit => break,
-            UciMessage::Go { time_control: _, search_control } => {
+            UciMessage::Go {
+                time_control: _,
+                search_control,
+            } => {
                 // let max_duration = Duration::from_secs(3);
                 // thread::scope(|s|{
                 //     let handle = s.spawn(|| {
@@ -166,7 +170,8 @@ fn main() {
                     let search_control = search_control?;
                     let depth = search_control.depth?;
                     Some(depth)
-                }) ().unwrap_or(8);
+                })()
+                .unwrap_or(8);
                 println!(
                     "{}",
                     UciMessage::Info(vec![UciInfoAttribute::Any(
@@ -191,6 +196,29 @@ fn main() {
                 );
             }
 
+            UciMessage::Unknown(msg, _) => {
+                if msg.to_lowercase().starts_with("go perft") {
+                    let depth = str::parse::<usize>(&msg[9..]).unwrap_or(8);
+                    let mut engine = ChessEngine::new(depth, 40, 42);
+                    for depth in 1..=depth{
+
+                        let start = SystemTime::now();
+                        println!("{}", UciMessage::Info(vec![UciInfoAttribute::Any(
+                            "Perft".to_owned(),
+                            format!("depth {}, value {}, {} ms", depth, engine.perft(&mut game_state, depth), SystemTime::now().duration_since(start).unwrap().as_millis()))
+                        ]));          
+                    }
+                } else {
+                    println!(
+                        "{}",
+                        UciMessage::Info(vec![UciInfoAttribute::Any(
+                            "Unexpected message".to_owned(),
+                            format!("{}", msg)
+                        )])
+                    );
+                }
+            }
+
             // why are these here?
             UciMessage::Id { .. }
             | UciMessage::UciOk
@@ -199,8 +227,7 @@ fn main() {
             | UciMessage::CopyProtection(_)
             | UciMessage::Registration(_)
             | UciMessage::Option(_)
-            | UciMessage::Info(_)
-            | UciMessage::Unknown(_, _) => println!(
+            | UciMessage::Info(_) => println!(
                 "{}",
                 UciMessage::Info(vec![UciInfoAttribute::Any(
                     "Unexpected message".to_owned(),

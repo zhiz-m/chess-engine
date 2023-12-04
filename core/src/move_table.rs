@@ -72,6 +72,21 @@ impl<const MOVE_TABLE_SIZE: usize> MoveTable<MOVE_TABLE_SIZE> {
         // None
     }
 
+    pub fn get_entry_perft(
+        &self,
+        hash: HashType,
+        depth: u8,
+    ) -> Option<MoveEntry> {
+        let ind = hash as usize & (MOVE_TABLE_SIZE - 1);
+        if self.table[ind].0.depth == depth && self.table[ind].0.hash == hash {
+            Some(self.table[ind].0)
+        } else if self.table[ind].1.depth == depth && self.table[ind].1.hash == hash {
+            Some(self.table[ind].1)
+        } else {
+            None
+        }
+    }
+
     pub fn insert_entry(&mut self, entry: MoveEntry) {
         let ind = entry.hash as usize & (MOVE_TABLE_SIZE - 1);
         self.table[ind].insert(entry);

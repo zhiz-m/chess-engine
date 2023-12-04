@@ -1,4 +1,6 @@
 *.txt
+*.svg
+perf.*
 
 # Added by cargo
 
