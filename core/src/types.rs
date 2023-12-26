@@ -1,161 +1,96 @@
-use serde::{de::Error, Deserialize};
 use std::fmt::Display;
 
-use crate::{config::PIECE_SCORES, util};
+use crate::{square_type::SquareType, types_for_io::Piece, util};
 
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum Player {
-    White = 0,
-    Black = 1,
-}
+// #[derive(Clone, Copy, PartialEq, Debug, Eq)]
+// pawn: a & !b & c
+// knight: !a & b & c
+// bishop: !a & b & c
+// rook: a & !b & !c
+// queen: a & b & !c
+// king: a & b & c
+// pub enum Piece {
+//     Pawn = 0,
+//     Knight = 1,
+//     Bishop = 2,
+//     Rook = 3,
+//     Queen = 4,
+//     King = 5,
+// }
 
-impl Player {
-    pub fn opp(self) -> Player {
-        if self == Player::White {
-            Player::Black
-        } else {
-            Player::White
-        }
-    }
-}
+// impl Piece {
+//     pub fn value(self) -> i32 {
+//         // [1, 3, 3, 5, 9, 1_000_000_000]
+//         PIECE_SCORES[self as usize]
+//     }
+// }
 
-impl TryFrom<char> for Player {
-    type Error = &'static str;
+// impl Display for Piece {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         f.write_str(match self {
+//             Piece::Pawn => "pawn",
+//             Piece::Knight => "knight",
+//             Piece::Bishop => "bishop",
+//             Piece::Rook => "rook",
+//             Piece::Queen => "queen",
+//             Piece::King => "king",
+//         })
+//     }
+// }
 
-    fn try_from(value: char) -> Result<Self, Self::Error> {
-        Ok(match value.to_ascii_lowercase() {
-            'w' => Player::White,
-            'b' => Player::Black,
-            _ => return Err("invalid player char"),
-        })
-    }
-}
+// impl From<usize> for Piece {
+//     fn from(value: usize) -> Self {
+//         match value {
+//             0 => Piece::Pawn,
+//             1 => Piece::Knight,
+//             2 => Piece::Bishop,
+//             3 => Piece::Rook,
+//             4 => Piece::Queen,
+//             5 => Piece::King,
+//             _ => unreachable!(),
+//         }
+//     }
+// }
 
-impl TryFrom<&str> for Player {
-    type Error = &'static str;
+// impl TryFrom<char> for Piece {
+//     type Error = &'static str;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Ok(match value.to_lowercase().as_str() {
-            "white" => Player::White,
-            "black" => Player::Black,
-            _ => return Err("invalid player string"),
-        })
-    }
-}
+//     fn try_from(value: char) -> Result<Self, Self::Error> {
+//         Ok(match value.to_ascii_lowercase() {
+//             'p' => Piece::Pawn,
+//             'n' => Piece::Knight,
+//             'b' => Piece::Bishop,
+//             'r' => Piece::Rook,
+//             'q' => Piece::Queen,
+//             'k' => Piece::King,
+//             _ => return Err("invalid piece char"),
+//         })
+//     }
+// }
 
-impl<'de> Deserialize<'de> for Player {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        match s.to_lowercase().as_str() {
-            "white" => Ok(Player::White),
-            "black" => Ok(Player::Black),
-            _ => Err(D::Error::custom("invalid player")),
-        }
-    }
-}
+// impl TryFrom<&str> for Piece {
+//     type Error = &'static str;
 
-#[derive(Clone, Copy, PartialEq, Debug, Eq)]
-pub enum Piece {
-    Pawn = 0,
-    Knight = 1,
-    Bishop = 2,
-    Rook = 3,
-    Queen = 4,
-    King = 5,
-}
+//     fn try_from(value: &str) -> Result<Self, Self::Error> {
+//         Ok(match value.to_lowercase().as_str() {
+//             "pawn" => Piece::Pawn,
+//             "knight" => Piece::Knight,
+//             "bishop" => Piece::Bishop,
+//             "rook" => Piece::Rook,
+//             "queen" => Piece::Queen,
+//             "king" => Piece::King,
+//             _ => return Err("invalid piece string"),
+//         })
+//     }
+// }
 
-impl Piece {
-    pub fn value(self) -> i32 {
-        // [1, 3, 3, 5, 9, 1_000_000_000]
-        PIECE_SCORES[self as usize]
-    }
-}
-
-impl Display for Piece {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Piece::Pawn => "pawn",
-            Piece::Knight => "knight",
-            Piece::Bishop => "bishop",
-            Piece::Rook => "rook",
-            Piece::Queen => "queen",
-            Piece::King => "king",
-        })
-    }
-}
-
-impl From<usize> for Piece {
-    fn from(value: usize) -> Self {
-        match value {
-            0 => Piece::Pawn,
-            1 => Piece::Knight,
-            2 => Piece::Bishop,
-            3 => Piece::Rook,
-            4 => Piece::Queen,
-            5 => Piece::King,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl TryFrom<char> for Piece {
-    type Error = &'static str;
-
-    fn try_from(value: char) -> Result<Self, Self::Error> {
-        Ok(match value.to_ascii_lowercase() {
-            'p' => Piece::Pawn,
-            'n' => Piece::Knight,
-            'b' => Piece::Bishop,
-            'r' => Piece::Rook,
-            'q' => Piece::Queen,
-            'k' => Piece::King,
-            _ => return Err("invalid piece char"),
-        })
-    }
-}
-
-impl TryFrom<&str> for Piece {
-    type Error = &'static str;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Ok(match value.to_lowercase().as_str() {
-            "pawn" => Piece::Pawn,
-            "knight" => Piece::Knight,
-            "bishop" => Piece::Bishop,
-            "rook" => Piece::Rook,
-            "queen" => Piece::Queen,
-            "king" => Piece::King,
-            _ => return Err("invalid piece string"),
-        })
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Grid(u64);
-
-impl<'a, T> From<T> for Grid
-where
-    T: IntoIterator<Item = &'a str>,
-{
-    fn from(value: T) -> Self {
-        let mut grid = 0;
-        for pos in value {
-            grid |= 1u64 << util::canonical_to_pos(pos);
-        }
-        Grid(grid)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Move {
     Move {
         prev_pos: u8,
         new_pos: u8,
-        piece: Piece,
-        captured_piece: Option<Piece>,
+        piece: SquareType,
+        captured_piece: SquareType,
     },
     Castle {
         is_short: bool,
@@ -163,8 +98,8 @@ pub enum Move {
     PawnPromote {
         prev_pos: u8,
         new_pos: u8,
-        promoted_to_piece: Piece,
-        captured_piece: Option<Piece>,
+        promoted_to_piece: SquareType,
+        captured_piece: SquareType,
     },
     EnPassant {
         prev_column: u8,
@@ -234,28 +169,25 @@ impl Display for Move {
                 prev_pos,
                 new_pos,
                 piece,
-                captured_piece: Some(captured_piece),
+                captured_piece,
             } => {
-                format!(
-                    "{} {} to {}, capturing {}",
-                    piece,
-                    util::coord_to_canonical(util::pos_to_coord(prev_pos)),
-                    util::coord_to_canonical(util::pos_to_coord(new_pos)),
-                    captured_piece
-                )
-            }
-            Move::Move {
-                prev_pos,
-                new_pos,
-                piece,
-                captured_piece: None,
-            } => {
-                format!(
-                    "{} {} to {}",
-                    piece,
-                    util::coord_to_canonical(util::pos_to_coord(prev_pos)),
-                    util::coord_to_canonical(util::pos_to_coord(new_pos))
-                )
+                let piece = piece.to_piece_for_io().expect("cannot be empty");
+                let captured_piece = captured_piece.to_piece_for_io();
+                match captured_piece {
+                    Some(captured_piece) => format!(
+                        "{} {} to {}, capturing {}",
+                        piece,
+                        util::coord_to_canonical(util::pos_to_coord(prev_pos.try_into().unwrap())),
+                        util::coord_to_canonical(util::pos_to_coord(new_pos.try_into().unwrap())),
+                        captured_piece
+                    ),
+                    None => format!(
+                        "{} {} to {}",
+                        piece,
+                        util::coord_to_canonical(util::pos_to_coord(prev_pos.try_into().unwrap())),
+                        util::coord_to_canonical(util::pos_to_coord(new_pos.try_into().unwrap()))
+                    ),
+                }
             }
             Move::Castle { is_short: true } => "castle short".into(),
             Move::Castle { is_short: false } => "castle long".into(),
@@ -263,30 +195,28 @@ impl Display for Move {
                 prev_pos,
                 new_pos,
                 promoted_to_piece,
-                captured_piece: Some(captured_piece),
+                captured_piece,
             } => {
-                format!(
-                    "{} {} to {}, capturing {}, promoting to {}",
-                    Piece::Pawn,
-                    util::coord_to_canonical(util::pos_to_coord(prev_pos)),
-                    util::coord_to_canonical(util::pos_to_coord(new_pos)),
-                    captured_piece,
-                    promoted_to_piece
-                )
-            }
-            Move::PawnPromote {
-                prev_pos,
-                new_pos,
-                promoted_to_piece,
-                captured_piece: None,
-            } => {
-                format!(
-                    "{} {} to {}, promoting to {}",
-                    Piece::Pawn,
-                    util::coord_to_canonical(util::pos_to_coord(prev_pos)),
-                    util::coord_to_canonical(util::pos_to_coord(new_pos)),
-                    promoted_to_piece
-                )
+                let captured_piece = captured_piece.to_piece_for_io();
+                let promoted_to_piece =
+                    promoted_to_piece.to_piece_for_io().expect("cannot be empty");
+                match captured_piece {
+                    Some(captured_piece) => format!(
+                        "{} {} to {}, capturing {}, promoting to {}",
+                        Piece::Pawn,
+                        util::coord_to_canonical(util::pos_to_coord(prev_pos.try_into().unwrap())),
+                        util::coord_to_canonical(util::pos_to_coord(new_pos.try_into().unwrap())),
+                        captured_piece,
+                        promoted_to_piece
+                    ),
+                    None => format!(
+                        "{} {} to {}, promoting to {}",
+                        Piece::Pawn,
+                        util::coord_to_canonical(util::pos_to_coord(prev_pos.try_into().unwrap())),
+                        util::coord_to_canonical(util::pos_to_coord(new_pos.try_into().unwrap())),
+                        promoted_to_piece
+                    ),
+                }
             }
             Move::EnPassant {
                 prev_column,

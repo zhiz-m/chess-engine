@@ -3,12 +3,15 @@ use std::fmt::Display;
 use crate::{
     config::{MOVE_TABLE_SIZE, NULL_MOVES_PER_BRANCH, NULL_MOVE_DEPTH_REDUCTION},
     eval,
-    game_data::ZoboristState,
+    grid::Grid,
+    markers::{BlackMarker, WhiteMarker},
     move_buffer::MoveBuffer,
     move_orderer::MoveOrderer,
     move_table::{MoveEntry, MoveTable},
-    types::{Move, Piece, ValueMovePair},
-    GameState, Player,
+    player::Player,
+    types::{Move, ValueMovePair},
+    zoborist_state::ZoboristState,
+    GameState,
 };
 
 struct EngineStatistics {
@@ -25,7 +28,7 @@ impl Default for EngineStatistics {
             nodes_explored: Default::default(),
             quiescence_nodes: Default::default(),
             cache_hits: Default::default(),
-            max_depth_encountered: Default::default(),
+            max_depth_encountered: 999,
             null_move_fail_highs: Default::default(),
         }
     }
@@ -104,17 +107,17 @@ impl ChessEngine {
         last_move_pos: u8,
     ) -> i32 {
         let stand_pat = Self::scoring_function(state);
-        // self.max_depth_encountered = self.max_depth_encountered.min(depth);
+        self.stats.max_depth_encountered = self.stats.max_depth_encountered.min(depth);
         if depth == self.normal_depth + 1 {
             return stand_pat;
         }
         self.stats.quiescence_nodes += 1;
-        // if (self.stats.quiescence_nodes + self.stats.nodes_explored) % 100000 == 0 {
-        //     println!(
-        //         "explored {} nodes, {}/{} normal/quiescence nodes, alpha: {}, beta: {}, cached_moves: {}, current_score: {}, max_depth_encountered: {}",
-        //         self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.nodes_explored, self.stats.quiescence_nodes, alpha, beta, self.stats.cache_hits, eval::evaluate(state), self.stats.max_depth_encountered
-        //     );
-        // }
+        if (self.stats.quiescence_nodes + self.stats.nodes_explored) % 100000 == 0 {
+            println!(
+                "explored {} nodes, {}/{} normal/quiescence nodes, alpha: {}, beta: {}, cached_moves: {}, current_score: {}, max_depth_encountered: {}",
+                self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.nodes_explored, self.stats.quiescence_nodes, alpha, beta, self.stats.cache_hits, eval::evaluate(state), self.stats.max_depth_encountered
+            );
+        }
 
         if stand_pat >= beta {
             return beta;
@@ -138,7 +141,7 @@ impl ChessEngine {
         // let move_buf = &mut self.move_bufs[depth];
         self.move_bufs[depth].clear();
         // self.move_buf.clear(depth);
-        self.move_bufs[depth].get_all_moves::<true>(state, state.player);
+        self.move_bufs[depth].get_all_moves(state);
 
         if self.move_bufs[depth].is_zugzwang() {
             return 0;
@@ -153,26 +156,24 @@ impl ChessEngine {
             move_entry.map(|x| x.mov),
             &mut self.move_orderer,
         ) {
-            if let Move::Move {
-                captured_piece: Some(Piece::King),
-                ..
-            } = next_move
-            {
-                let result = eval::SCORE_AFTER_KING_CAPTURED;
-                return result;
+            if let Move::Move { captured_piece, .. } = next_move {
+                if captured_piece.is_king() {
+                    let result = eval::SCORE_AFTER_KING_CAPTURED;
+                    return result;
+                }
             }
             // do the state transition
 
             if let Move::Move {
-                captured_piece: Some(_),
+                captured_piece,
                 new_pos,
                 ..
             } = next_move
             {
-                if new_pos != last_move_pos {
+                if captured_piece.is_empty() || new_pos != last_move_pos {
                     continue;
                 }
-                let meta = (state.states[0].meta, state.states[1].meta, state.en_passant_column);
+                let metadata = state.metadata;
                 state.apply_meta_hash(&self.zoborist_state);
                 state.advance_state(next_move, &self.zoborist_state);
                 state.apply_meta_hash(&self.zoborist_state);
@@ -184,9 +185,7 @@ impl ChessEngine {
                 state.revert_state(next_move, &self.zoborist_state);
 
                 // revert metadata: easiest to do this way
-                state.states[0].meta = meta.0;
-                state.states[1].meta = meta.1;
-                state.en_passant_column = meta.2;
+                state.metadata = metadata;
                 state.apply_meta_hash(&self.zoborist_state);
 
                 if score >= beta {
@@ -222,17 +221,18 @@ impl ChessEngine {
         null_move_count: u8,
         is_root: bool,
     ) -> i32 {
+        self.stats.max_depth_encountered = self.stats.max_depth_encountered.min(depth);
         if depth <= self.quiescence_depth {
             return self.quiescence(state, alpha, beta, self.quiescence_depth, last_move_pos);
         }
 
         self.stats.nodes_explored += 1;
-        // if (self.stats.quiescence_nodes + self.stats.nodes_explored) % 100000 == 0 {
-        //     println!(
-        //         "explored {} nodes, {}/{} normal/quiescence nodes, alpha: {}, beta: {}, cached_moves: {}, current_score: {}, max_depth_encountered: {}",
-        //         self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.nodes_explored, self.stats.quiescence_nodes, alpha, beta, self.stats.cache_hits, eval::evaluate(state), self.stats.max_depth_encountered
-        //     );
-        // }
+        if (self.stats.quiescence_nodes + self.stats.nodes_explored) % 100000 == 0 {
+            println!(
+                "explored {} nodes, {}/{} normal/quiescence nodes, alpha: {}, beta: {}, cached_moves: {}, current_score: {}, max_depth_encountered: {}",
+                self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.nodes_explored, self.stats.quiescence_nodes, alpha, beta, self.stats.cache_hits, eval::evaluate(state), self.stats.max_depth_encountered
+            );
+        }
 
         let move_entry = self
             .state_cache
@@ -276,7 +276,7 @@ impl ChessEngine {
         // let mut move_buf = MoveBuffer::default();
         // move_buf.clear(depth);
         self.move_bufs[depth].clear();
-        self.move_bufs[depth].get_all_moves::<true>(state, state.player);
+        self.move_bufs[depth].get_all_moves(state);
 
         if self.move_bufs[depth].is_zugzwang() {
             return 0;
@@ -299,6 +299,7 @@ impl ChessEngine {
             if is_root {
                 println!("{}", next_move);
             }
+            
             let try_store_move = |engine: &mut Self, next_val| {
                 if is_root {
                     if engine
@@ -313,23 +314,17 @@ impl ChessEngine {
                     }
                 }
             };
-            if let Move::Move {
-                captured_piece: Some(Piece::King),
-                ..
-            } = next_move
-            {
-                let result = eval::SCORE_AFTER_KING_CAPTURED;
-                try_store_move(self, result);
-                return result;
+            if let Move::Move { captured_piece, .. } = next_move {
+                if captured_piece.is_king() {
+                    let result = eval::SCORE_AFTER_KING_CAPTURED;
+                    try_store_move(self, result);
+                    return result;
+                }
             }
             // do the state transition
             // let last_state = state.clone();
 
-            let meta = (
-                state.states[0].meta,
-                state.states[1].meta,
-                state.en_passant_column,
-            );
+            let metadata = state.metadata;
             state.apply_meta_hash(&self.zoborist_state);
             state.advance_state(next_move, &self.zoborist_state);
             state.apply_meta_hash(&self.zoborist_state);
@@ -368,9 +363,7 @@ impl ChessEngine {
             state.revert_state(next_move, &self.zoborist_state);
 
             // revert metadata: easiest to do this way
-            state.states[0].meta = meta.0;
-            state.states[1].meta = meta.1;
-            state.en_passant_column = meta.2;
+            state.metadata = metadata;
             state.apply_meta_hash(&self.zoborist_state);
 
             // if *state != last_state{
@@ -401,19 +394,29 @@ impl ChessEngine {
             //     beta = i32::min(beta, value);
             // }
         }
-        
+
         // no legal moves
-        if best_move == None || value < -eval::SCORE_AFTER_KING_CAPTURED_CUTOFF{
+        if best_move == None || value < -eval::SCORE_AFTER_KING_CAPTURED_CUTOFF {
             // determine if currently in check
-            self.move_bufs[depth].clear();
-            self.move_bufs[depth].get_squares_under_attack(state);
-            for pos in 0u8..64 {
-                if state.get_state(state.player).pieces[Piece::King as usize].0 & (1u64 << pos) > 0 {
-                    if self.move_bufs[depth].is_square_under_attack(pos) {
-                        // checkmate
-                        return -eval::WIN_THRESHOLD - (depth as i32);
-                    }
-                }
+            let (attacked_grid, king_pos) = match state.player {
+                Player::White => (MoveBuffer::get_attacked_grid::<BlackMarker>(state), state.piece_grid.get_king_pos::<WhiteMarker>()),
+                Player::Black => (MoveBuffer::get_attacked_grid::<WhiteMarker>(state), state.piece_grid.get_king_pos::<BlackMarker>()),
+            };
+            // self.move_bufs[depth].clear();
+            // self.move_bufs[depth].get_squares_under_attack(state);
+            // for pos in 0u8..64 {
+            //     if state.get_state(state.player).pieces[Piece::King as usize].0 & (1u64 << pos) > 0
+            //     {
+            //         if self.move_bufs[depth].is_square_under_attack(pos) {
+            //             // checkmate
+            //             return -eval::WIN_THRESHOLD - (depth as i32);
+            //         }
+            //     }
+            // }
+
+            // checkmate
+            if attacked_grid & king_pos != Grid::EMPTY {
+                return -eval::WIN_THRESHOLD - (depth as i32);
             }
 
             // stalemate
@@ -430,12 +433,8 @@ impl ChessEngine {
             self.move_orderer
                 .update_history(mov, state.player, depth - self.quiescence_depth + 1);
         }
-        if let Some(Move::Move {
-            captured_piece: None,
-            ..
-        }) = best_move
-        {
-            if let Some(best_move) = best_move {
+        if let Some(best_move @ Move::Move { captured_piece, .. }) = best_move {
+            if captured_piece.is_empty() {
                 self.move_orderer.insert_killer_move(best_move, depth);
             }
         }
@@ -446,7 +445,7 @@ impl ChessEngine {
     pub fn solve(&mut self, state: &GameState, depth: usize) -> i32 {
         assert!(depth <= self.normal_depth);
         let mut state = state.clone();
-        state.setup(&self.zoborist_state);
+        // state.setup(&self.zoborist_state);
         self.calculated_moves.clear();
         let mut result = self.calc(
             &mut state,
@@ -494,7 +493,7 @@ impl ChessEngine {
     pub fn perft(&mut self, state: &mut GameState, depth: usize) -> i64 {
         let move_entry = self
             .state_cache
-            .get_entry_perft(state.hash, depth.try_into().unwrap(),);
+            .get_entry_perft(state.hash, depth.try_into().unwrap());
 
         if let Some(MoveEntry { value, .. }) = move_entry {
             self.stats.cache_hits += 1;
@@ -503,7 +502,7 @@ impl ChessEngine {
         // let mut move_buf = MoveBuffer::default();
         // move_buf.clear(depth);
         self.move_bufs[depth].clear();
-        self.move_bufs[depth].get_all_moves::<true>(state, state.player);
+        self.move_bufs[depth].get_all_moves(state);
 
         if self.move_bufs[depth].is_zugzwang() {
             return 0;
@@ -524,8 +523,14 @@ impl ChessEngine {
 
         let mut has_legal_child = false;
 
+        // let map = HashMap::default();
+
         while let Some(next_move) = self.move_bufs[depth].pop() {
-            let meta = (state.states[0].meta, state.states[1].meta, state.en_passant_column);
+            // if depth == 2 {
+            //     map.get(k)
+            //     println!("move: {}", next_move);
+            // }
+            let metadata = state.metadata;
             state.apply_meta_hash(&self.zoborist_state);
             state.advance_state(next_move, &self.zoborist_state);
             state.apply_meta_hash(&self.zoborist_state);
@@ -537,9 +542,7 @@ impl ChessEngine {
             }
             state.apply_meta_hash(&self.zoborist_state);
             state.revert_state(next_move, &self.zoborist_state);
-            state.states[0].meta = meta.0;
-            state.states[1].meta = meta.1;
-            state.en_passant_column = meta.2;
+            state.metadata = metadata;
             state.apply_meta_hash(&self.zoborist_state);
         }
 

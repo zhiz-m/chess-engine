@@ -52,7 +52,7 @@ fn piece_engine_to_uci(piece: Piece) -> UciPiece {
 fn pos_engine_to_uci(pos: u8) -> UciSquare {
     let tup = pos_to_coord(pos);
     UciSquare {
-        file: (tup.1 + 'a' as i8) as u8 as char,
+        file: (7 - tup.1 + 'a' as i8) as u8 as char,
         rank: tup.0 as u8 + 1,
     }
 }
@@ -79,7 +79,7 @@ fn move_engine_to_uci(player: Player, mov: Move) -> UciMove {
         } => (
             prev_pos,
             new_pos,
-            Some(piece_engine_to_uci(promoted_to_piece)),
+            Some(piece_engine_to_uci(promoted_to_piece.to_piece_for_io().expect("cannot be none"))),
         ),
         Move::EnPassant {
             prev_column,
@@ -172,6 +172,7 @@ fn main() {
                     Some(depth)
                 })()
                 .unwrap_or(8);
+                println!("startign with depth {}", depth);
                 println!(
                     "{}",
                     UciMessage::Info(vec![UciInfoAttribute::Any(

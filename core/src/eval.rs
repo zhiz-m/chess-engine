@@ -1,7 +1,11 @@
-use crate::{config::NUM_PIECES, GameState, Player};
+use crate::{
+    config::NUM_PIECES,
+    markers::{BlackMarker, PlayerMarker, WhiteMarker},
+    GameState,
+};
 
 pub const WIN_THRESHOLD: i32 = 1_000_000;
-pub const SCORE_AFTER_KING_CAPTURED_CUTOFF : i32 = (WIN_THRESHOLD * 3) / 2;
+pub const SCORE_AFTER_KING_CAPTURED_CUTOFF: i32 = (WIN_THRESHOLD * 3) / 2;
 pub const SCORE_AFTER_KING_CAPTURED: i32 = WIN_THRESHOLD * 2;
 pub const SCORE_MAX: i32 = WIN_THRESHOLD * 10;
 
@@ -161,49 +165,94 @@ fn flip_pos(pos: u8) -> u8 {
     pos ^ 56
 }
 
-fn evaluate_player(
+fn evaluate_player<P: PlayerMarker>(
     state: &GameState,
-    player: Player,
     piece_val: &[i32; NUM_PIECES],
     square_table: &[[i32; 64]; NUM_PIECES],
 ) -> i32 {
     // let state = state.get_state(player);
+    // state
+    //     .get_state(player)
+    //     .pieces
+    //     .iter()
+    //     .enumerate()
+    //     .map(|x| {
+    //         (0..64)
+    //             .filter(|pos| x.1.contains_pos(*pos))
+    //             .map(|pos| {
+    //                 piece_val[x.0]
+    //                     + square_table[x.0][if player == Player::Black {
+    //                         pos as usize
+    //                     } else {
+    //                         flip_pos(pos) as usize
+    //                     }]
+    //             })
+    //             .sum::<i32>()
+    //     })
+    //     .sum::<i32>()
+
     state
-        .get_state(player)
-        .pieces
-        .iter()
-        .enumerate()
-        .map(|x| {
-            (0..64)
-                .filter(|pos| x.1.contains_pos(*pos))
-                .map(|pos| {
-                    piece_val[x.0]
-                        + square_table[x.0][if player == Player::Black {
-                            pos as usize
-                        } else {
-                            flip_pos(pos) as usize
-                        }]
-                })
-                .sum::<i32>()
-        })
+        .piece_grid
+        .get_pawn_pos::<P>()
+        .into_iter()
+        .map(|pos| piece_val[0] + square_table[0][pos as usize])
         .sum::<i32>()
+        + state
+            .piece_grid
+            .get_knight_pos::<P>()
+            .into_iter()
+            .map(|pos| piece_val[1] + square_table[1][pos as usize])
+            .sum::<i32>()
+        + state
+            .piece_grid
+            .get_bishop_pos::<P>()
+            .into_iter()
+            .map(|pos| piece_val[2] + square_table[2][pos as usize])
+            .sum::<i32>()
+        + state
+            .piece_grid
+            .get_rook_pos::<P>()
+            .into_iter()
+            .map(|pos| piece_val[3] + square_table[3][pos as usize])
+            .sum::<i32>()
+        + state
+            .piece_grid
+            .get_queen_pos::<P>()
+            .into_iter()
+            .map(|pos| piece_val[4] + square_table[4][pos as usize])
+            .sum::<i32>()
+        + state
+            .piece_grid
+            .get_king_pos::<P>()
+            .into_iter()
+            .map(|pos| piece_val[5] + square_table[5][pos as usize])
+            .sum::<i32>()
 }
 
-fn calc_phase(state: &GameState, player: Player) -> u32{
-    let state = state.get_state(player);
-    state
-    .pieces
-    .iter()
-    .enumerate()
-    .map(|x| PIECE_PHASE[x.0] * x.1 .0.count_ones())
-    .sum::<u32>()
+fn calc_phase<P: PlayerMarker>(state: &GameState) -> u32 {
+    // let state = state.get_state(player);
+    // state
+    //     .pieces
+    //     .iter()
+    //     .enumerate()
+    //     .map(|x| PIECE_PHASE[x.0] * x.1 .0.count_ones())
+    //     .sum::<u32>()
+    state.piece_grid.get_pawn_pos::<P>().num_pieces() * PIECE_PHASE[0]
+        + state.piece_grid.get_knight_pos::<P>().num_pieces() * PIECE_PHASE[1]
+        + state.piece_grid.get_bishop_pos::<P>().num_pieces() * PIECE_PHASE[2]
+        + state.piece_grid.get_rook_pos::<P>().num_pieces() * PIECE_PHASE[3]
+        + state.piece_grid.get_queen_pos::<P>().num_pieces() * PIECE_PHASE[4]
 }
 
 pub fn evaluate(state: &GameState) -> i32 {
-    let mg_score = evaluate_player(state, Player::White, &MG_PIECE_VAL, &MG_SQUARE_TABLE) - evaluate_player(state, Player::Black, &MG_PIECE_VAL, &MG_SQUARE_TABLE);
-    let eg_score = evaluate_player(state, Player::White, &EG_PIECE_VAL, &EG_SQUARE_TABLE) - evaluate_player(state, Player::Black, &EG_PIECE_VAL, &EG_SQUARE_TABLE);
+    let mg_score = evaluate_player::<WhiteMarker>(state, &MG_PIECE_VAL, &MG_SQUARE_TABLE)
+        - evaluate_player::<BlackMarker>(state, &MG_PIECE_VAL, &MG_SQUARE_TABLE);
+    let eg_score = evaluate_player::<WhiteMarker>(state, &EG_PIECE_VAL, &EG_SQUARE_TABLE)
+        - evaluate_player::<BlackMarker>(state, &EG_PIECE_VAL, &EG_SQUARE_TABLE);
 
-    let mut phase = (calc_phase(state, Player::White) + calc_phase(state, Player::Black)) as i32;
-    if phase > 24 {phase = 24};
-    mg_score * phase + eg_score * (24 - phase) 
+    let mut phase = (calc_phase::<WhiteMarker>(state) + calc_phase::<BlackMarker>(state)) as i32;
+    if phase > 24 {
+        phase = 24
+    };
+    mg_score * phase + eg_score * (24 - phase)
 }
