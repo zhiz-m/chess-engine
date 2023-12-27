@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::{Rng, rngs::StdRng, SeedableRng};
 
 use crate::config::HashType;
 
@@ -18,8 +18,8 @@ impl ZoboristState {
         en_passant: [0; 9],
     };
 
-    pub fn new(_seed: u64) -> Self {
-        let mut rng = rand::thread_rng();
+    pub fn new(seed: u64) -> Self {
+        let mut rng = StdRng::seed_from_u64(seed);
 
         let mut state = Self::STATIC_EMPTY.clone();
 

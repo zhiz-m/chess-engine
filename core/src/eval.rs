@@ -1,7 +1,7 @@
 use crate::{
     config::NUM_PIECES,
     markers::{BlackMarker, PlayerMarker, WhiteMarker},
-    GameState,
+    GameState, Player,
 };
 
 pub const WIN_THRESHOLD: i32 = 1_000_000;
@@ -162,7 +162,7 @@ const EG_SQUARE_TABLE: [[i32; 64]; NUM_PIECES] = [
 // const MG_SQUARE_TABLE: [[i32; 64]; NUM_PIECES] = [
 
 fn flip_pos(pos: u8) -> u8 {
-    pos ^ 56
+    (56 - (pos & !0b111)) | (pos & 0b111)
 }
 
 fn evaluate_player<P: PlayerMarker>(
@@ -191,41 +191,51 @@ fn evaluate_player<P: PlayerMarker>(
     //     })
     //     .sum::<i32>()
 
+    let modify_pos = |mut pos: u8| {
+        match P::PLAYER {
+            Player::White => {
+                pos = flip_pos(pos);
+            }
+            Player::Black => {}
+        }
+        ((pos & !0b111) | (7 - (pos & 0b111))) as usize
+    };
+
     state
         .piece_grid
         .get_pawn_pos::<P>()
         .into_iter()
-        .map(|pos| piece_val[0] + square_table[0][pos as usize])
+        .map(|pos| piece_val[0] + square_table[0][modify_pos(pos)])
         .sum::<i32>()
         + state
             .piece_grid
             .get_knight_pos::<P>()
             .into_iter()
-            .map(|pos| piece_val[1] + square_table[1][pos as usize])
+            .map(|pos| piece_val[1] + square_table[1][modify_pos(pos)])
             .sum::<i32>()
         + state
             .piece_grid
             .get_bishop_pos::<P>()
             .into_iter()
-            .map(|pos| piece_val[2] + square_table[2][pos as usize])
+            .map(|pos| piece_val[2] + square_table[2][modify_pos(pos)])
             .sum::<i32>()
         + state
             .piece_grid
             .get_rook_pos::<P>()
             .into_iter()
-            .map(|pos| piece_val[3] + square_table[3][pos as usize])
+            .map(|pos| piece_val[3] + square_table[3][modify_pos(pos)])
             .sum::<i32>()
         + state
             .piece_grid
             .get_queen_pos::<P>()
             .into_iter()
-            .map(|pos| piece_val[4] + square_table[4][pos as usize])
+            .map(|pos| piece_val[4] + square_table[4][modify_pos(pos)])
             .sum::<i32>()
         + state
             .piece_grid
             .get_king_pos::<P>()
             .into_iter()
-            .map(|pos| piece_val[5] + square_table[5][pos as usize])
+            .map(|pos| piece_val[5] + square_table[5][modify_pos(pos)])
             .sum::<i32>()
 }
 

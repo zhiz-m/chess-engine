@@ -7,6 +7,6 @@ pub type HashType = u64;
 pub const KILLER_MOVES_PER_DEPTH: usize = 3;
 pub const PIECE_SCORES: [i32; 6] = [1, 3, 3, 5, 9, 2_000_000];
 // pub const MOVE_TABLE_BITS: usize = 18;
-pub const MOVE_TABLE_SIZE: usize = 1 << 17;
+pub const MOVE_TABLE_SIZE: usize = 1 << 20;
 pub const NULL_MOVE_DEPTH_REDUCTION: usize = 2;
 pub const NULL_MOVES_PER_BRANCH: u8 = 3;

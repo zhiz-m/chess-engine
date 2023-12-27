@@ -115,13 +115,14 @@ impl SquareType{
     }
     pub fn value(self) -> i32{
         match self.0 >> 1{
-            0 => panic!("piece cannot be none"),
+            // we allow 0 here to make piece capture calculations a bit more ergonomic
+            0 => 0,
             2 => 3,
             3 => 3,
             4 => 5,
             5 => 1,
             6 => 9,
-            7 => 1_000_000_000,
+            7 => 1_000_000,
             _ => panic!("invalid square type")
         }
     }

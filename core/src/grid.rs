@@ -1,6 +1,6 @@
 use std::{ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Shl, Shr, Sub,
-}, rc::Rc, cell::RefCell};
+}, rc::Rc, cell::RefCell, num::Wrapping};
 
 use serde::Deserialize;
 
@@ -200,10 +200,12 @@ pub struct PieceGrid {
 }
 
 impl PieceGrid {
+    #[inline(always)]
     pub fn all_squares_occupied(&self, grid: Grid) -> bool {
         (self.a | self.b | self.c) & grid == grid
     }
 
+    #[inline(always)]
     pub fn get_square_type(&self, pos: u8) -> SquareType {
         // assert!(grid.num_pieces() == 1);
         // let pos = (grid.grid - 1).count_ones() as u8;
@@ -215,6 +217,7 @@ impl PieceGrid {
         SquareType::from_parts(a as u8, b as u8, c as u8, d as u8)
     }
 
+    #[inline(always)]
     fn get_d_bits<P: PlayerMarker>(&self) -> Grid {
         let bits = if P::IS_WHITE { u64::MAX } else { 0 }; // ones for white, zero for black
         Grid {
@@ -222,6 +225,7 @@ impl PieceGrid {
         }
     }
 
+    #[inline(always)]
     fn get_opp_d_bits<P: PlayerMarker>(&self) -> Grid {
         let bits = if !P::IS_WHITE { u64::MAX } else { 0 }; // ones for white, zero for black
         Grid {
@@ -229,64 +233,77 @@ impl PieceGrid {
         }
     }
 
+    #[inline(always)]
     pub fn get_pawn_pos<P: PlayerMarker>(&self) -> Grid {
         self.a & !self.b & self.c & self.get_d_bits::<P>()
     }
 
+    #[inline(always)]
     pub fn get_knight_pos<P: PlayerMarker>(&self) -> Grid {
         !self.a & self.b & self.c & self.get_d_bits::<P>()
     }
 
+    #[inline(always)]
     pub fn get_bishop_pos<P: PlayerMarker>(&self) -> Grid {
         !self.a & self.b & !self.c & self.get_d_bits::<P>()
     }
 
+    #[inline(always)]
     pub fn get_rook_pos<P: PlayerMarker>(&self) -> Grid {
         self.a & !self.b & !self.c & self.get_d_bits::<P>()
     }
 
+    #[inline(always)]
     pub fn get_queen_pos<P: PlayerMarker>(&self) -> Grid {
         self.a & self.b & !self.c & self.get_d_bits::<P>()
     }
 
+    #[inline(always)]
     pub fn get_king_pos<P: PlayerMarker>(&self) -> Grid {
         self.a & self.b & self.c & self.get_d_bits::<P>()
     }
 
+    #[inline(always)]
     pub fn get_rooks_queens<P: PlayerMarker>(&self) -> Grid {
         self.a & !self.c & self.get_d_bits::<P>()
     }
 
+    #[inline(always)]
     pub fn get_bishops_queens<P: PlayerMarker>(&self) -> Grid {
         self.b & !self.c & self.get_d_bits::<P>()
     }
+    #[inline(always)]
     pub fn get_empty_squares(&self) -> Grid {
         !(self.a | self.b | self.c)
     }
 
+    #[inline(always)]
     pub fn get_player_pieces<P: PlayerMarker>(&self) -> Grid {
         (self.a | self.b | self.c) & self.get_d_bits::<P>()
     }
 
+    #[inline(always)]
     pub fn get_opp_player_pieces<P: PlayerMarker>(&self) -> Grid {
         (self.a | self.b | self.c) & self.get_opp_d_bits::<P>()
     }
 
+    #[inline(always)]
     pub fn get_all_pieces(&self) -> Grid {
         self.a | self.b | self.c
     }
 
+    #[inline(always)]
     pub fn get_squares_of_type(&self, square_type: SquareType) -> Grid {
-        let a = u64::MAX + square_type.get_a() as u64;
-        let b = u64::MAX + square_type.get_b() as u64;
-        let c = u64::MAX + square_type.get_c() as u64;
-        let d = u64::MAX + square_type.get_d() as u64;
+        let a = (Wrapping(u64::MAX) + Wrapping(square_type.get_a() as u64)).0;
+        let b = (Wrapping(u64::MAX) + Wrapping(square_type.get_b() as u64)).0;
+        let c = (Wrapping(u64::MAX) + Wrapping(square_type.get_c() as u64)).0;
+        let d = (Wrapping(u64::MAX) + Wrapping(square_type.get_d() as u64)).0;
         (self.a ^ a) & (self.b ^ b) & (self.c ^ c) & (self.d ^ d)
     }
 
+    #[inline(always)]
     // note: apply hash elsewhere
     pub fn apply_square(&mut self, pos: u8, square_type: SquareType) {
-        // square_type.check_valid();
         self.a ^= Grid {
             grid: (square_type.get_a() as u64) << pos,
         };
@@ -299,7 +316,6 @@ impl PieceGrid {
         self.d ^= Grid {
             grid: (square_type.get_d() as u64) << pos,
         };
-        // self.get_square_type(pos);
     }
 
     pub fn from_piece_vec<T: AsRef<str>>(white_pieces: &[Vec<T>], black_pieces: &[Vec<T>]) -> Self {
@@ -324,23 +340,11 @@ impl PieceGrid {
             .for_each(iter_fn(Player::Black));
         res.take()
     }
+
+    pub fn debug_print(&self) {
+        for pos in 0..64{
+            let square_type = self.get_square_type(pos);
+            println!("pos {} square_type {}", pos, square_type.to_raw());
+        }
+    }
 }
-
-// impl From<&[Grid]> for PieceGrid {
-//     fn from(pieces: &[Grid]) -> PieceGrid {
-//         let (mut a, mut b, mut c): (Grid, Grid, Grid) = Default::default();
-//         a |= pieces[Piece::Pawn as usize]
-//             | pieces[Piece::Rook as usize]
-//             | pieces[Piece::Queen as usize]
-//             | pieces[Piece::King as usize];
-
-//         b |= pieces[Piece::Knight as usize]
-//             | pieces[Piece::Bishop as usize]
-//             | pieces[Piece::Queen as usize]
-//             | pieces[Piece::King as usize];
-//         c |= pieces[Piece::Knight as usize]
-//             | pieces[Piece::Pawn as usize]
-//             | pieces[Piece::King as usize];
-//         Self { a, b, c }
-//     }
-// }

@@ -1,7 +1,10 @@
 use chess_engine_core::{
     canonical_to_pos, pos_to_coord, ChessEngine, GameState, Move, Piece, Player,
 };
-use std::{io::{self, BufRead, Write}, time::SystemTime};
+use std::{
+    io::{self, BufRead, Write},
+    time::SystemTime,
+};
 use vampirc_uci::{
     parse_one, UciInfoAttribute, UciMessage, UciMove, UciOptionConfig, UciPiece, UciSearchControl,
     UciSquare,
@@ -64,10 +67,10 @@ fn move_engine_to_uci(player: Player, mov: Move) -> UciMove {
         } => (prev_pos, new_pos, None),
         Move::Castle { is_short } => {
             let (prev_pos, new_pos) = match (player, is_short) {
-                (Player::White, true) => (4, 6),
-                (Player::White, false) => (4, 2),
-                (Player::Black, true) => (60, 62),
-                (Player::Black, false) => (60, 58),
+                (Player::White, true) => (3, 1),
+                (Player::White, false) => (3, 5),
+                (Player::Black, true) => (59, 57),
+                (Player::Black, false) => (59, 61),
             };
             (prev_pos, new_pos, None)
         }
@@ -79,7 +82,9 @@ fn move_engine_to_uci(player: Player, mov: Move) -> UciMove {
         } => (
             prev_pos,
             new_pos,
-            Some(piece_engine_to_uci(promoted_to_piece.to_piece_for_io().expect("cannot be none"))),
+            Some(piece_engine_to_uci(
+                promoted_to_piece.to_piece_for_io().expect("cannot be none"),
+            )),
         ),
         Move::EnPassant {
             prev_column,
@@ -100,8 +105,6 @@ const NAME: &'static str = "loglogn-bot";
 const AUTHOR: &'static str = "loglogn";
 
 fn main() {
-    let mut engine = ChessEngine::new(10, 40, 42);
-
     let mut game_state = GameState::default();
     for line in io::stdin().lock().lines() {
         let msg: UciMessage = parse_one(&line.unwrap());
@@ -171,21 +174,48 @@ fn main() {
                     let depth = search_control.depth?;
                     Some(depth)
                 })()
-                .unwrap_or(8);
-                println!("startign with depth {}", depth);
+                .unwrap_or(9);
+                let mut engine = ChessEngine::new(16, 40,13);
+                let mut mov = Move::Castle { is_short: false };
+                let mut score = 0;
+                for i in ((2-(depth as usize % 2))..=(depth as usize)).step_by(2) {
+                    println!(
+                        "{}",
+                        UciMessage::Info(vec![UciInfoAttribute::Any(
+                            "current depth".to_owned(),
+                            format!("{}", i)
+                        )])
+                    );
+                    let start = SystemTime::now();
+                    score = engine.solve(&game_state, i);
+                    mov = engine.get_best_calculated_move(game_state.player).unwrap();
+                    println!(
+                        "{}",
+                        UciMessage::Info(vec![UciInfoAttribute::Any(
+                            "iterative search finished".to_owned(),
+                            format!(
+                                "depth {}, score {}, {}, {}ms",
+                                i,
+                                score,
+                                mov,
+                                SystemTime::now().duration_since(start).unwrap().as_millis()
+                            )
+                        )])
+                    );
+                }
                 println!(
                     "{}",
                     UciMessage::Info(vec![UciInfoAttribute::Any(
                         "best score".to_owned(),
-                        format!("{}", engine.solve(&game_state, depth as usize))
+                        format!("{}", score)
                     )])
                 );
-                let mov = engine.get_best_calculated_move(game_state.player).unwrap();
+                // let mov = engine.get_best_calculated_move(game_state.player).unwrap();
                 println!(
                     "{}",
                     UciMessage::Info(vec![UciInfoAttribute::Any(
                         "best move".to_owned(),
-                        format!("{}", mov)
+                        format!("{}", mov,)
                     )])
                 );
                 println!(
@@ -201,13 +231,20 @@ fn main() {
                 if msg.to_lowercase().starts_with("go perft") {
                     let depth = str::parse::<usize>(&msg[9..]).unwrap_or(8);
                     let mut engine = ChessEngine::new(depth, 40, 42);
-                    for depth in 1..=depth{
-
+                    for depth in 1..=depth {
                         let start = SystemTime::now();
-                        println!("{}", UciMessage::Info(vec![UciInfoAttribute::Any(
-                            "Perft".to_owned(),
-                            format!("depth {}, value {}, {} ms", depth, engine.perft(&mut game_state, depth), SystemTime::now().duration_since(start).unwrap().as_millis()))
-                        ]));          
+                        println!(
+                            "{}",
+                            UciMessage::Info(vec![UciInfoAttribute::Any(
+                                "Perft".to_owned(),
+                                format!(
+                                    "depth {}, value {}, {} ms",
+                                    depth,
+                                    engine.perft(&mut game_state, depth),
+                                    SystemTime::now().duration_since(start).unwrap().as_millis()
+                                )
+                            )])
+                        );
                     }
                 } else {
                     println!(

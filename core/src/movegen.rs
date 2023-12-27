@@ -213,22 +213,27 @@ impl Rays {
         grid
     }
 
-    // #[inline(always)]
-    // fn ray_horizontal_vertical_occluded(grid: Grid, empty_grid: Grid) -> Grid {
-    //     Self::ray_left_occluded(grid, empty_grid)
-    //         | Self::ray_right_occluded(grid, empty_grid)
-    //         | Self::ray_up_occluded(grid, empty_grid)
-    //         | Self::ray_down_occluded(grid, empty_grid)
-    // }
+    #[inline(always)]
+    pub fn ray_horizontal_vertical_occluded_noncaptures(grid: Grid, empty_grid: Grid) -> Grid {
+        Self::ray_left_occluded(grid, empty_grid)
+            | Self::ray_right_occluded(grid, empty_grid)
+            | Self::ray_up_occluded(grid, empty_grid)
+            | Self::ray_down_occluded(grid, empty_grid)
+    }
 
-    // #[inline(always)]
-    // fn ray_horizontal_vertical_captures(grid_with_moves: Grid, opposing_pieces: Grid) -> Grid {
-    //     (Common::left(grid_with_moves)
-    //         | Common::right(grid_with_moves)
-    //         | Common::up(grid_with_moves)
-    //         | Common::down(grid_with_moves))
-    //         & opposing_pieces
-    // }
+    #[inline(always)]
+    pub fn ray_horizontal_vertical_captures(
+        grid: Grid,
+        empty_grid: Grid,
+        opposing_pieces: Grid,
+    ) -> Grid {
+        let left = Self::ray_left_occluded(grid, empty_grid);
+        let right = Self::ray_right_occluded(grid, empty_grid);
+        let up = Self::ray_up_occluded(grid, empty_grid);
+        let down = Self::ray_down_occluded(grid, empty_grid);
+        (Common::left(left) | Common::right(right) | Common::up(up) | Common::down(down))
+            & opposing_pieces
+    }
 
     #[inline(always)]
     /// includes the original piece positions
@@ -248,22 +253,26 @@ impl Rays {
                 & opposing_pieces)
     }
 
-    // #[inline(always)]
-    // fn ray_diagonal_occluded_without_captures(grid: Grid, empty_grid: Grid) -> Grid {
-    //     Self::ray_bottom_left_occluded(grid, empty_grid)
-    //         | Self::ray_bottom_right_occluded(grid, empty_grid)
-    //         | Self::ray_top_left_occluded(grid, empty_grid)
-    //         | Self::ray_top_right_occluded(grid, empty_grid)
-    // }
+    #[inline(always)]
+    pub fn ray_diagonal_occluded_noncaptures(grid: Grid, empty_grid: Grid) -> Grid {
+        Self::ray_bottom_left_occluded(grid, empty_grid)
+            | Self::ray_bottom_right_occluded(grid, empty_grid)
+            | Self::ray_top_left_occluded(grid, empty_grid)
+            | Self::ray_top_right_occluded(grid, empty_grid)
+    }
 
-    // #[inline(always)]
-    // fn ray_diagonal_captures(grid_with_moves: Grid, opposing_pieces: Grid) -> Grid {
-    //     (Common::top_left(grid_with_moves)
-    //         | Common::top_right(grid_with_moves)
-    //         | Common::bottom_left(grid_with_moves)
-    //         | Common::bottom_right(grid_with_moves))
-    //         & opposing_pieces
-    // }
+    #[inline(always)]
+    pub fn ray_diagonal_captures(grid: Grid, empty_grid: Grid, opposing_pieces: Grid) -> Grid {
+        let bottom_left = Self::ray_bottom_left_occluded(grid, empty_grid);
+        let bottom_right = Self::ray_bottom_right_occluded(grid, empty_grid);
+        let top_left = Self::ray_top_left_occluded(grid, empty_grid);
+        let top_right = Self::ray_top_right_occluded(grid, empty_grid);
+        (Common::bottom_left(bottom_left)
+            | Common::bottom_right(bottom_right)
+            | Common::top_left(top_left)
+            | Common::top_right(top_right))
+            & opposing_pieces
+    }
 
     #[inline(always)]
     /// includes the original piece positions
@@ -304,6 +313,22 @@ impl Knight {
             | Common::bottom_right(right)
             | Common::top_right(right))
             & !player_pieces
+    }
+    #[inline(always)]
+    pub fn captures(grid: Grid, opposing_pieces: Grid) -> Grid {
+        let up = Common::up(grid);
+        let down = Common::down(grid);
+        let left = Common::left(grid);
+        let right = Common::right(grid);
+        (Common::top_left(up)
+            | Common::top_right(up)
+            | Common::top_left(left)
+            | Common::bottom_left(left)
+            | Common::bottom_left(down)
+            | Common::bottom_right(down)
+            | Common::bottom_right(right)
+            | Common::top_right(right))
+            & opposing_pieces
     }
 }
 
@@ -352,21 +377,29 @@ impl Pawn {
     }
 
     #[inline(always)]
+    pub fn regular_moves<P: PlayerMarker>(grid: Grid, empty_grid: Grid) -> Grid {
+        let grid = grid & !Self::opposing_home_pawn_row::<P>();
+        empty_grid
+            & if P::IS_WHITE {
+                Common::up(grid)
+            } else {
+                Common::down(grid)
+            }
+    }
+
+    #[inline(always)]
+    pub fn captures<P: PlayerMarker>(grid: Grid, opposing_pieces: Grid) -> Grid {
+        let grid = grid & !Self::opposing_home_pawn_row::<P>();
+        Self::squares_attacked::<P>(grid) & opposing_pieces
+    }
+
+    #[inline(always)]
     pub fn regular_moves_and_captures<P: PlayerMarker>(
         grid: Grid,
         empty_grid: Grid,
         opposing_pieces: Grid,
     ) -> Grid {
-        // promotions not included
-        let grid = grid & !Self::opposing_home_pawn_row::<P>();
-        let single_moves = if P::IS_WHITE {
-            Common::up(grid)
-        } else {
-            Common::down(grid)
-        } & empty_grid;
-        let captures = Self::squares_attacked::<P>(grid) & opposing_pieces;
-
-        single_moves | captures
+        Self::regular_moves::<P>(grid, empty_grid) | Self::captures::<P>(grid, opposing_pieces)
     }
 
     #[inline(always)]
@@ -379,16 +412,26 @@ impl Pawn {
     }
 
     #[inline(always)]
-    pub fn promotions<P: PlayerMarker>(grid: Grid, empty_grid: Grid, black_pieces: Grid) -> Grid {
+    pub fn regular_promotions<P: PlayerMarker>(grid: Grid, empty_grid: Grid) -> Grid {
         let grid = grid & Self::opposing_home_pawn_row::<P>();
-        let single_moves = if P::IS_WHITE {
-            Common::up(grid)
-        } else {
-            Common::down(grid)
-        } & empty_grid;
-        let captures = Self::squares_attacked::<P>(grid) & black_pieces;
+        empty_grid
+            & if P::IS_WHITE {
+                Common::up(grid)
+            } else {
+                Common::down(grid)
+            }
+    }
 
-        single_moves | captures
+    #[inline(always)]
+    pub fn promotion_captures<P: PlayerMarker>(grid: Grid, opposing_pieces: Grid) -> Grid {
+        let grid = grid & Self::opposing_home_pawn_row::<P>();
+        Self::squares_attacked::<P>(grid) & opposing_pieces
+    }
+
+    #[inline(always)]
+    pub fn promotions<P: PlayerMarker>(grid: Grid, empty_grid: Grid, opposing_pieces: Grid) -> Grid {
+        Self::regular_promotions::<P>(grid, empty_grid)
+            | Self::promotion_captures::<P>(grid, opposing_pieces)
     }
 
     #[inline(always)]
@@ -431,6 +474,19 @@ impl King {
         ) | Knight::moves(piece_grid.get_knight_pos::<P>(), Grid::EMPTY)
             | Pawn::squares_attacked::<P>(piece_grid.get_pawn_pos::<P>())
             | King::regular_moves(piece_grid.get_king_pos::<P>(), Grid::EMPTY)
+    }
+
+    #[inline(always)]
+    pub fn captures(grid: Grid, opposing_pieces: Grid) -> Grid {
+        (Common::up(grid)
+            | Common::left(grid)
+            | Common::down(grid)
+            | Common::right(grid)
+            | Common::top_left(grid)
+            | Common::top_right(grid)
+            | Common::bottom_left(grid)
+            | Common::bottom_right(grid))
+            & opposing_pieces
     }
 
     #[inline(always)]

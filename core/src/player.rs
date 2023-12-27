@@ -7,6 +7,7 @@ pub enum Player {
 }
 
 impl Player {
+    #[inline(always)]
     pub fn opp(self) -> Player {
         if self == Player::White {
             Player::Black

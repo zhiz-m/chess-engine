@@ -140,6 +140,24 @@ impl MoveOrderer {
         }
     }
 
+    #[inline(always)]
+    pub fn move_is_positive_equal_capture(mov: Move) -> bool {
+        match mov{
+            Move::Move{piece, captured_piece, ..} => {
+                // piece.value() <= captured_piece.value()
+                captured_piece.value() > 0
+            },
+            Move::EnPassant { .. } => true,
+            Move::PawnPromote { .. } => true, 
+            _ => false
+        }
+    }
+
+    #[inline(always)]
+    pub fn move_is_killer(&self, mov: Move, depth: usize) -> bool {
+        self.killer_moves[depth].contains(mov)
+    }
+
     fn get_move_cmp_key(
         &mut self,
         mov: Move,
@@ -164,20 +182,27 @@ impl MoveOrderer {
                 }
                 if !captured_piece.is_empty() {
                     if new_pos == last_move_pos {
-                        (1, piece.value() - captured_piece.value())
-                    } else if piece.value() < captured_piece.value() {
-                        (3, piece.value() - captured_piece.value())
+                        (1, piece.value())
+                    } 
+                    else 
+                    
+                    // if piece.value() <= captured_piece.value()
+                     {
+                        (2, piece.value() - captured_piece.value() * 100)
                     }
                     // captures worth the same material are slightly preferred over non-killer silent moves
-                    else {
-                        (4, piece.value() - captured_piece.value() - 1)
-                    }
-                } else if killer_entry.contains(mov) {
+                    // else {
+                    //     (4, piece.value() - captured_piece.value() * 100 - 1)
+                    // }
+                }
+                 else if killer_entry.contains(mov) {
                     // println!("killer move");
-                    (4, -2)
-                } else if let Some((prev_pos, new_pos)) = Self::get_move_index(mov, player) {
+                    (3, 0)
+                } 
+                else if let Some((prev_pos, new_pos)) = Self::get_move_index(mov, player) {
                     (4, self.history_table[player as usize][prev_pos][new_pos])
-                } else {
+                } 
+                else {
                     (4, 0)
                 }
             }

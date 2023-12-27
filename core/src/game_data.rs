@@ -96,7 +96,7 @@ impl Metadata {
 
     #[inline(always)]
     pub fn set_en_passant_column(&mut self, en_passant_column: u8) {
-        self.0 = (self.0 & 0b1111) | en_passant_column
+        self.0 = (self.0 & 0b1111) | (en_passant_column << 4)
     }
 
     #[inline(always)]
@@ -105,188 +105,6 @@ impl Metadata {
             ^ zoborist_state.en_passant[(self.0 >> 4) as usize]
     }
 }
-
-// #[derive(Clone, Deserialize, Default, PartialEq, Eq)]
-// pub struct PlayerState {
-//     // #[serde(deserialize_with = "from_string_vec")]
-//     // pub pieces: [Grid; NUM_PIECES],
-//     #[serde(default)]
-//     pub pieces: PieceGrid,
-
-//     // pawn: a & !b & c
-//     // knight: !a & b & c
-//     // bishop: !a & b & c
-//     // rook: a & !b & !c
-//     // queen: a & b & !c
-//     // king: a & b & c
-
-//     // #[serde(default)]
-//     // pub piece_grid: u64,
-//     #[serde(default)]
-//     pub meta: PlayerMetadata,
-// }
-
-// fn from_string_vec<'de, D>(deserializer: D) -> Result<[Grid; NUM_PIECES], D::Error>
-// where
-//     D: Deserializer<'de>,
-// {
-//     let pieces: BTreeMap<String, Vec<String>> = Deserialize::deserialize(deserializer)?;
-
-//     let mut res = [Grid(0); NUM_PIECES];
-
-//     for (piece, pos) in pieces.into_iter() {
-//         let piece: Piece = piece.as_str().try_into().map_err(D::Error::custom)?;
-//         let grid: Grid = pos.iter().map(|x| x.as_str()).into();
-//         res[piece as usize] = grid;
-//     }
-
-//     Ok(res)
-// }
-
-// impl PlayerState {
-//     pub fn new(player: Player) -> PlayerState {
-//         PlayerState {
-//             pieces: From::<&[Grid]>::from(&match player {
-//                 Player::White => [
-//                     vec!["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"].into(),
-//                     vec!["b1", "g1"].into(),
-//                     vec!["c1", "f1"].into(),
-//                     vec!["a1", "h1"].into(),
-//                     vec!["d1"].into(),
-//                     vec!["e1"].into(),
-//                 ],
-//                 Player::Black => [
-//                     vec!["a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7"].into(),
-//                     vec!["b8", "g8"].into(),
-//                     vec!["c8", "f8"].into(),
-//                     vec!["a8", "h8"].into(),
-//                     vec!["d8"].into(),
-//                     vec!["e8"].into(),
-//                 ],
-//             }),
-//             // piece_grid: 0xffff00000000ffff,
-//             meta: PlayerMetadata::default(),
-//         }
-//     }
-
-//     pub fn new_from_state<S: AsRef<str>>(pos: Vec<Vec<S>>) -> Result<PlayerState, &'static str> {
-//         if pos.len() != 6 {
-//             return Err("invalid length");
-//         }
-//         let pieces: [Grid; NUM_PIECES] = pos
-//             .into_iter()
-//             .map(Into::<Grid>::into)
-//             .collect::<Vec<Grid>>()
-//             .try_into()
-//             .map_err(|_| "cannot parse strings")?;
-//         let mut res = PlayerState {
-//             pieces: PieceGrid::from(pieces.as_slice()),
-//             // piece_grid: 0,
-//             meta: PlayerMetadata::default(),
-//         };
-//         // res.setup();
-
-//         Ok(res)
-//     }
-//     pub fn new_from_fen(player: Player, fen: &str) -> Result<PlayerState, &'static str> {
-//         if !fen.is_ascii() {
-//             return Err("fen not ascii");
-//         }
-
-//         let parts: Vec<&str> = fen.split(' ').collect();
-
-//         if parts.len() != 6 {
-//             return Err("fen not len 6");
-//         }
-
-//         let mut pieces = [Grid::default(); 6];
-//         let mut state = Self::default();
-
-//         // handle pieces
-
-//         let mut row = 7;
-//         let mut column = 0;
-
-//         let char_is_valid = |char: char| {
-//             (player == Player::White && char.is_ascii_uppercase())
-//                 || (player == Player::Black && char.is_ascii_lowercase())
-//         };
-
-//         for char in parts[0].chars() {
-//             if char == '/' {
-//                 row -= 1;
-//                 column = 0;
-//                 continue;
-//             }
-//             if row < 0 || column > 7 {
-//                 return Err("invalid fen");
-//             }
-//             if let Some(num) = char.to_digit(10) {
-//                 column += num as i8;
-//                 continue;
-//             }
-
-//             if char_is_valid(char) {
-//                 let piece = Piece::try_from(char)?;
-//                 let pos = coord_to_pos((row, column));
-
-//                 pieces[piece as usize] |= Grid::from_u64(1 << pos);
-//             }
-//             column += 1
-//         }
-
-//         state.meta.can_castle_long = false;
-//         state.meta.can_castle_short = false;
-
-//         // handle castling
-//         for char in parts[2].chars() {
-//             if char == '-' {
-//                 break;
-//             }
-//             if char_is_valid(char) {
-//                 match char.to_ascii_lowercase() {
-//                     'k' => state.meta.can_castle_short = true,
-//                     'q' => state.meta.can_castle_long = true,
-//                     _ => return Err("invalid castle char"),
-//                 }
-//             }
-//         }
-
-//         // todo: everything else
-
-//         // state.setup();
-
-//         state.pieces = PieceGrid::from(pieces.as_slice());
-
-//         Ok(state)
-//     }
-
-// pub fn setup(&mut self) {
-//     self.piece_grid = 0;
-//     for grid in self.pieces.iter().take(NUM_PIECES) {
-//         self.piece_grid |= grid.0;
-//     }
-// }
-
-// pub fn square_occupied(&self, pos: u8) -> bool {
-//     self.piece_grid & (1u64 << pos) > 0
-//     // self.pieces
-//     //     .iter()
-//     //     .map(|x| x.0 & (1u64 << pos) > 0)
-//     //     .any(|x| x)
-// }
-
-// pub fn get_piece_at_pos(&self, pos: u8) -> Option<Piece> {
-//     Some(
-//         self.pieces
-//             .iter()
-//             .enumerate()
-//             .find(|x| x.1 .0 & (1u64 << pos) > 0)?
-//             .0
-//             .into(),
-//     )
-// }
-// }
 
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 pub struct GameState {
@@ -297,26 +115,8 @@ pub struct GameState {
     pub hash: HashType,
 }
 
-// fn from_player_vec<'de, D>(deserializer: D) -> Result<[PlayerState; 2], D::Error>
-// where
-//     D: Deserializer<'de>,
-// {
-//     let states: BTreeMap<String, PlayerState> = Deserialize::deserialize(deserializer)?;
-
-//     let mut res = [
-//         PlayerState::new(Player::White),
-//         PlayerState::new(Player::White),
-//     ];
-
-//     for (player, state) in states.into_iter() {
-//         let player: Player = player.as_str().try_into().map_err(D::Error::custom)?;
-//         res[player as usize] = state;
-//     }
-
-//     Ok(res)
-// }
-
 impl Hash for GameState {
+    #[inline(always)]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.hash.hash(state);
     }
@@ -391,20 +191,6 @@ impl GameState {
         }
     }
 
-    // pub fn new_from_state(
-    //     white_player_state: PlayerState,
-    //     black_player_state: PlayerState,
-    //     en_passant_column: Option<u8>,
-    //     player_to_move: Player,
-    // ) -> GameState {
-    //     GameState {
-    //         states: [white_player_state, black_player_state],
-    //         en_passant_column,
-    //         player: player_to_move,
-    //         hash: 0,
-    //     }
-    // }
-
     fn apply_fen(
         piece_grid: &mut PieceGrid,
         metadata: &mut Metadata,
@@ -420,9 +206,6 @@ impl GameState {
         if parts.len() != 6 {
             return Err("fen not len 6");
         }
-
-        // let mut pieces = [Grid::default(); 6];
-        // let mut state = Self::default();
 
         // handle pieces
 
@@ -451,6 +234,7 @@ impl GameState {
             if char_is_valid(char) {
                 let piece = Piece::try_from(char)?;
                 let pos = coord_to_pos((row, column));
+                println!("{} {}", piece, pos);
 
                 piece_grid.apply_square(pos, SquareType::create_for_parsing(piece, player))
             }
@@ -493,6 +277,7 @@ impl GameState {
             _ => return Err("invalid en passant value in fen"),
         });
 
+        // println!("metadata: {:b}", metadata.0);
         Ok(Self {
             piece_grid,
             metadata,
@@ -501,32 +286,28 @@ impl GameState {
         })
     }
 
+    #[inline(always)]
     pub fn apply_meta_hash(&mut self, zoborist_state: &ZoboristState) {
-        // self.hash ^= zoborist_state.castle[self.states[0].meta.can_castle_long as usize]
-        //     [self.states[0].meta.can_castle_short as usize]
-        //     [self.states[1].meta.can_castle_long as usize]
-        //     [self.states[1].meta.can_castle_short as usize];
-        // if let Some(en_passant_column) = self.en_passant_column {
-        //     self.hash ^= zoborist_state.en_passant[en_passant_column as usize]
-        // }
         self.hash ^= self.metadata.get_meta_hash(zoborist_state)
     }
 
+    #[inline(always)]
     fn apply_piece_hash(
         &mut self,
         zoborist_state: &ZoboristState,
         square_type: SquareType,
         pos: u8,
     ) {
-        // self.hash ^= zoborist_state.pieces[player as usize][piece as usize][pos as usize];
         self.hash ^= square_type.get_piece_hash(pos, zoborist_state)
     }
 
+    #[inline(always)]
     pub fn change_player(&mut self, zoborist_state: &ZoboristState) {
         self.hash ^= zoborist_state.player;
         self.player = self.player.opp();
     }
 
+    #[inline(always)]
     fn apply_piece_move(
         &mut self,
         zoborist_state: &ZoboristState,
@@ -534,18 +315,8 @@ impl GameState {
         pos: u8,
     ) {
         self.apply_piece_hash(zoborist_state, square_type, pos);
-        // let player_state: &mut PlayerState = &mut self.states[player as usize];
 
-        // player_state.pieces[piece as usize].0 ^= 1u64 << pos;
-        // player_state.piece_grid ^= 1u64 << pos;
-        // self.hash ^= zoborist_state.pieces[player as usize][piece as usize][pos as usize];
-        // let square_type_old = self.piece_grid.get_square_type(pos);
         self.piece_grid.apply_square(pos, square_type);
-        // let square_type_new = self.piece_grid.get_square_type(pos);
-        // if square_type_new.to_raw() == 1{
-        //     println!("fail {} {} {} {}", square_type.to_raw(), square_type_old.to_raw(), square_type_new.to_raw(), pos);
-        //     panic!();
-        // }
     }
 
     // zoborist hash
@@ -582,6 +353,7 @@ impl GameState {
     //     &mut self.states[player as usize]
     // }
 
+    #[inline(always)]
     fn modify_state<const APPLY_METADATA_CHANGES: bool>(
         &mut self,
         next_move: Move,
@@ -591,7 +363,6 @@ impl GameState {
             self.metadata.set_en_passant_column(Metadata::NO_EN_PASSANT);
             // self.en_passant_column = None;
         }
-        // let offset = if self.player == Player::White { 0 } else { 56 };
         let offset = self.player as u8 * 56;
         match next_move {
             Move::Move {
@@ -600,69 +371,41 @@ impl GameState {
                 piece,
                 captured_piece,
             } => {
-                // let square_type_old = self.piece_grid.get_square_type(new_pos);
-                // let old_square_type_old = self.piece_grid.get_square_type(prev_pos);
-                // if square_type_old.to_raw() == 1 {
-                //     println!("old fail old");
-                // }
-                // if old_square_type_old.to_raw() == 1 {
-                //     println!("old fail new");
-                // }
-
-                // capture/uncapture the piece if any
-                // if let Some(captured_piece) = captured_piece {
-                //     self.apply_piece_move(
-                //         zoborist_state,
-                //         self.player.opp(),
-                //         captured_piece,
-                //         new_pos,
-                //     );
-                //     // self.get_state_mut(self.player.opp()).pieces[captured_piece as usize].0 ^=
-                //     //     1 << new_pos;
-                //     // self.get_state_mut(self.player.opp()).piece_grid ^= 1 << new_pos;
-                // }
                 self.apply_piece_move(zoborist_state, captured_piece, new_pos);
 
-                // move the current piece
-                // self.get_state_mut(self.player).pieces[piece as usize].0 ^=
-                //     (1 << prev_pos) | (1 << new_pos);
-                // self.get_state_mut(self.player).piece_grid ^= (1 << prev_pos) | (1 << new_pos);
                 self.apply_piece_move(zoborist_state, piece, prev_pos);
                 self.apply_piece_move(zoborist_state, piece, new_pos);
 
                 if APPLY_METADATA_CHANGES {
-                    // let player_state = &mut self.states[self.player as usize];
                     if piece.is_king() || (piece.is_rook() && prev_pos == offset + 7) {
-                        // player_state.meta.can_castle_long = false;
                         self.metadata
                             .set_can_castle_dynamic::<false>(self.player, false);
                     }
                     if piece.is_king() || (piece.is_rook() && prev_pos == offset) {
-                        // player_state.meta.can_castle_short = false;
                         self.metadata
                             .set_can_castle_dynamic::<false>(self.player, true);
                     }
+                    let offset_opp = (1 - self.player as u8) * 56;
+                    if captured_piece.is_rook() && new_pos == offset_opp {
+                        self.metadata
+                            .set_can_castle_dynamic::<false>(self.player.opp(), true);
+                    }
+                    if captured_piece.is_rook() && new_pos == offset_opp + 7 {
+                        self.metadata
+                            .set_can_castle_dynamic::<false>(self.player.opp(), false);
+                    }
+
+                    // if a rook is captured via pawn promotion, castling bits will fail. TODO fix
 
                     // potential en passant next move
                     if piece.is_pawn() && i32::abs(prev_pos as i32 - new_pos as i32) == 16 {
                         self.metadata.set_en_passant_column(prev_pos & 0b111);
                     }
                 }
-                // let square_type_new = self.piece_grid.get_square_type(new_pos);
-                // let old_square_type_new = self.piece_grid.get_square_type(prev_pos);
-                // if square_type_new.to_raw() == 1 {
-                //     println!("fail old");
-                // }
-                // if old_square_type_new.to_raw() == 1 {
-                //     println!("fail new");
-                // }
             }
             Move::Castle { is_short } => {
-                // let player_state = &mut self.states[self.player as usize];
                 const KING_POS: u8 = 3;
                 if APPLY_METADATA_CHANGES {
-                    // player_state.meta.can_castle_long = false;
-                    // player_state.meta.can_castle_short = false;
                     self.metadata
                         .set_can_castle_dynamic::<false>(self.player, false);
                     self.metadata
@@ -674,26 +417,14 @@ impl GameState {
                 let king = SquareType::king(self.player);
                 let rook = SquareType::rook(self.player);
 
-                // xor with initial rook/king positions
                 self.apply_piece_move(zoborist_state, king, KING_POS + offset);
                 self.apply_piece_move(zoborist_state, rook, rook_pos + offset);
-                // player_state.piece_grid ^= (1 << (KING_POS + offset)) | (1 << (rook_pos + offset));
-                // player_state.pieces[Piece::King as usize].0 ^= 1 << (KING_POS + offset);
-                // player_state.pieces[Piece::Rook as usize].0 ^= 1 << (rook_pos + offset);
 
                 // xor with post-castling rook/king positions
                 if is_short {
-                    // player_state.piece_grid ^=
-                    //     (1 << (KING_POS + offset + 2)) | (1 << (rook_pos + offset - 2));
-                    // player_state.pieces[Piece::King as usize].0 ^= 1 << (KING_POS + offset + 2);
-                    // player_state.pieces[Piece::Rook as usize].0 ^= 1 << (rook_pos + offset - 2);
                     self.apply_piece_move(zoborist_state, king, KING_POS + offset - 2);
                     self.apply_piece_move(zoborist_state, rook, rook_pos + offset + 2);
                 } else {
-                    // player_state.piece_grid ^=
-                    //     (1 << (KING_POS + offset - 2)) | (1 << (rook_pos + offset + 3));
-                    // player_state.pieces[Piece::King as usize].0 ^= 1 << (KING_POS + offset - 2);
-                    // player_state.pieces[Piece::Rook as usize].0 ^= 1 << (rook_pos + offset + 3);
                     self.apply_piece_move(zoborist_state, king, KING_POS + offset + 2);
                     self.apply_piece_move(zoborist_state, rook, rook_pos + offset - 3);
                 }
@@ -704,24 +435,11 @@ impl GameState {
                 promoted_to_piece,
                 captured_piece,
             } => {
-                // capture/uncapture piece if any
-                // if let Some(captured_piece) = captured_piece {
-                //     self.apply_piece_move(
-                //         zoborist_state,
-                //         self.player.opp(),
-                //         captured_piece,
-                //         new_pos,
-                //     );
-                // }
                 self.apply_piece_move(zoborist_state, captured_piece, new_pos);
 
-                // let player_state: &mut PlayerState = &mut self.states[self.player as usize];
-
                 // pawn promotion
-                // self.apply_piece_move(zoborist_state, self.player, Piece::Pawn, prev_pos);
-                // self.apply_piece_move(zoborist_state, self.player, promoted_to_piece, new_pos);
                 self.apply_piece_move(zoborist_state, SquareType::pawn(self.player), prev_pos);
-                self.apply_piece_hash(zoborist_state, promoted_to_piece, new_pos);
+                self.apply_piece_move(zoborist_state, promoted_to_piece, new_pos);
             }
             Move::EnPassant {
                 prev_column,
@@ -743,12 +461,6 @@ impl GameState {
                 } else {
                     16 + new_column
                 };
-                // self.apply_piece_move(
-                //     zoborist_state,
-                //     self.player.opp(),
-                //     Piece::Pawn,
-                //     captured_pawn_pos,
-                // );
                 self.apply_piece_move(
                     zoborist_state,
                     SquareType::pawn(self.player.opp()),
@@ -756,27 +468,8 @@ impl GameState {
                 );
 
                 // move the current piece
-                // self.apply_piece_move(zoborist_state, self.player, Piece::Pawn, prev_pos);
-                // self.apply_piece_move(zoborist_state, self.player, Piece::Pawn, new_pos);
                 self.apply_piece_move(zoborist_state, SquareType::pawn(self.player), prev_pos);
                 self.apply_piece_move(zoborist_state, SquareType::pawn(self.player), new_pos);
-
-                // let square_type_new = self.piece_grid.get_square_type(new_pos);
-                // let old_square_type_new = self.piece_grid.get_square_type(prev_pos);
-                // if square_type_new.to_raw() == 1 {
-                //     println!(
-                //         "fail new {} {}",
-                //         square_type_old.to_raw(),
-                //         square_type_new.to_raw()
-                //     );
-                // }
-                // if old_square_type_new.to_raw() == 1 {
-                //     println!(
-                //         "fail old {} {}",
-                //         old_square_type_old.to_raw(),
-                //         old_square_type_new.to_raw()
-                //     );
-                // }
             }
         }
     }
@@ -787,11 +480,7 @@ impl GameState {
         new_pos: u8,
         promoted_to_piece: Option<Piece>,
     ) -> Result<(), &'static str> {
-        // let state = self.get_state(self.player);
-        // let opp_state = self.get_state(self.player.opp());
-        // let piece = state.get_piece_at_pos(prev_pos).ok_or("invalid from pos")?;
         let piece = self.piece_grid.get_square_type(prev_pos);
-        // let captured_piece = opp_state.get_piece_at_pos(new_pos);
         let captured_piece = self.piece_grid.get_square_type(new_pos);
         let next_move = if let Some(promoted_to_piece) = promoted_to_piece {
             let promoted_to_piece = SquareType::create_for_parsing(promoted_to_piece, self.player);
@@ -803,7 +492,7 @@ impl GameState {
             }
         } else if piece.is_king() && i32::abs(prev_pos as i32 - new_pos as i32) == 2 {
             Move::Castle {
-                is_short: new_pos > prev_pos,
+                is_short: new_pos < prev_pos,
             }
         } else if piece.is_pawn()
             && (new_pos & 0b111 != prev_pos & 0b111)
@@ -826,89 +515,18 @@ impl GameState {
         Ok(())
     }
 
+    // #[inline(always)]
     pub fn advance_state(&mut self, next_move: Move, zoborist_state: &ZoboristState) {
         self.modify_state::<true>(next_move, zoborist_state);
         // switch the player
         self.change_player(zoborist_state);
     }
 
+    // #[inline(always)]
     pub fn revert_state(&mut self, next_move: Move, zoborist_state: &ZoboristState) {
         // switch the player
         self.change_player(zoborist_state);
 
         self.modify_state::<false>(next_move, zoborist_state);
     }
-
-    // pub fn score(&self) -> i32 {
-    //     self.states[Player::White as usize]
-    //         .pieces
-    //         .iter()
-    //         .enumerate()
-    //         .map(|x| PIECE_SCORES[x.0] * x.1 .0.count_ones() as i32)
-    //         .sum::<i32>()
-    //         - self.states[Player::Black as usize]
-    //             .pieces
-    //             .iter()
-    //             .enumerate()
-    //             .map(|x| PIECE_SCORES[x.0] * x.1 .0.count_ones() as i32)
-    //             .sum::<i32>()
-    // }
-
-    // pub fn is_in_check(&self) -> bool {
-    //     let player_state = self.get_state(self.player);
-    //     let opp_state = self.get_state(self.player.opp());
-    //     let king_pos = (player_state.pieces[Piece::King as usize].0 - 1).count_ones() as u8;
-    //     let coord_pos = pos_to_coord(king_pos);
-
-    //     const KNIGHT_DELTAS: [(i8, i8); 8] = [
-    //         (-1, -2),
-    //         (-1, 2),
-    //         (1, -2),
-    //         (1, 2),
-    //         (-2, -1),
-    //         (-2, 1),
-    //         (2, -1),
-    //         (2, 1),
-    //     ];
-
-    //     for (dy, dx) in KNIGHT_DELTAS.into_iter() {
-    //         let new_coord = (coord_pos.0 + dy, coord_pos.1 + dx);
-    //         if new_coord.0 < 0 || new_coord.0 > 7 || new_coord.1 < 0 || new_coord.1 > 7 {
-    //             continue;
-    //         }
-    //         if opp_state.pieces[Piece::Knight as usize].contains_pos(coord_to_pos(new_coord)) {
-    //             return true;
-    //         }
-    //     }
-
-    //     const BISHOP_DELTAS: [(i8, i8); 4] = [(1, -1), (1, 1), (-1, -1), (-1, 1)];
-    //     const ROOK_DELTAS: [(i8, i8); 4] = [(1, 0), (-1, 0), (0, -1), (0, 1)];
-
-    //     let helper = |deltas, pieces: [Piece; 2]| {
-    //         for (dy, dx) in deltas {
-    //             let mut res_coord = util::pos_to_coord(king_pos);
-    //             res_coord.0 += dy;
-    //             res_coord.1 += dx;
-    //             while res_coord.0 >= 0 && res_coord.0 < 8 && res_coord.1 >= 0 && res_coord.1 < 8 {
-    //                 let new_pos = util::coord_to_pos(res_coord);
-
-    //                 if pieces
-    //                     .iter()
-    //                     .map(|x| opp_state.pieces[*x as usize].contains_pos(new_pos))
-    //                     .any(|x| x)
-    //                 {
-    //                     return true;
-    //                 }
-
-    //                 if player_state.square_occupied(new_pos) || opp_state.square_occupied(new_pos) {
-    //                     break;
-    //                 }
-    //             }
-    //         }
-    //         false
-    //     };
-
-    //     helper(BISHOP_DELTAS, [Piece::Bishop, Piece::Queen])
-    //         || helper(ROOK_DELTAS, [Piece::Rook, Piece::Queen])
-    // }
 }
