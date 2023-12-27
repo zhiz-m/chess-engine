@@ -106,6 +106,7 @@ const AUTHOR: &'static str = "loglogn";
 
 fn main() {
     let mut game_state = GameState::default();
+    let mut engine = ChessEngine::new(16, 40,13);
     for line in io::stdin().lock().lines() {
         let msg: UciMessage = parse_one(&line.unwrap());
 
@@ -128,10 +129,11 @@ fn main() {
                 fen,
                 moves,
             } => {
+                engine.clear_move_history_threefold_repetition();
                 game_state = if startpos {
-                    GameState::default()
+                    GameState::new_with_hash(&engine.zoborist_state)
                 } else {
-                    GameState::new_from_fen(fen.unwrap().as_str()).unwrap()
+                    GameState::new_from_fen(fen.unwrap().as_str(), &engine.zoborist_state).unwrap()
                 };
                 for UciMove {
                     from,
@@ -141,8 +143,8 @@ fn main() {
                 {
                     let to_u8 = |s: UciSquare| canonical_to_pos(&format!("{}{}", s.file, s.rank));
                     let promoted_to_piece = promotion.map(piece_uci_to_engine);
-                    game_state
-                        .make_move_raw_parts(to_u8(from), to_u8(to), promoted_to_piece)
+                    engine
+                        .make_move_raw_parts(&mut game_state, to_u8(from), to_u8(to), promoted_to_piece)
                         .unwrap();
                 }
             }
@@ -174,8 +176,7 @@ fn main() {
                     let depth = search_control.depth?;
                     Some(depth)
                 })()
-                .unwrap_or(9);
-                let mut engine = ChessEngine::new(16, 40,13);
+                .unwrap_or(8);
                 let mut mov = Move::Castle { is_short: false };
                 let mut score = 0;
                 for i in ((2-(depth as usize % 2))..=(depth as usize)).step_by(2) {

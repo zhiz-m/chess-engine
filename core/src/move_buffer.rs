@@ -1,13 +1,13 @@
 use crate::{
     config::MAX_CHILDREN_PER_NODE, game_data::Metadata, grid::Grid, markers::*,
-    move_orderer::MoveOrderer, movegen, player::Player, square_type::SquareType, types::Move,
-    GameState,
+    move_buffer_entry::MoveBufferEntry, move_orderer::MoveOrderer, movegen, player::Player,
+    square_type::SquareType, types::Move, zoborist_state::ZoboristState, GameState,
 };
 
 #[derive(Clone, PartialEq)]
 pub struct MoveBuffer {
     num_moves: usize,
-    move_buf: [Option<Move>; MAX_CHILDREN_PER_NODE],
+    move_buf: [Option<MoveBufferEntry>; MAX_CHILDREN_PER_NODE],
 }
 
 impl Default for MoveBuffer {
@@ -22,7 +22,7 @@ impl Default for MoveBuffer {
 impl MoveBuffer {
     #[inline(always)]
     fn emit_move(&mut self, next_move: Move) {
-        self.move_buf[self.num_moves] = Some(next_move);
+        self.move_buf[self.num_moves] = Some(MoveBufferEntry::from_move(next_move));
         self.num_moves += 1;
     }
 
@@ -418,7 +418,7 @@ impl MoveBuffer {
     fn get_king_moves<P: PlayerMarker, O: PlayerMarker>(&mut self, state: &GameState) {
         let piece = SquareType::king(P::PLAYER);
         let grid = state.piece_grid.get_king_pos::<P>();
-        if grid.num_pieces() != 1{
+        if grid.num_pieces() != 1 {
             state.piece_grid.debug_print();
         }
         let prev_pos = grid.to_pos();
@@ -525,13 +525,29 @@ impl MoveBuffer {
             None
         } else {
             self.num_moves -= 1;
-            self.move_buf[self.num_moves]
+            self.move_buf[self.num_moves].map(|x| x.get_move())
         }
+    }
+
+    #[inline(always)]
+    pub fn compute_see(&mut self, state: &mut GameState) {
+        self.move_buf[0..self.num_moves]
+            .iter_mut()
+            .map(|x| x.as_mut())
+            .filter_map(|x| x)
+            .for_each(|entry| {
+                if let Move::Move { captured_piece, .. } = entry.get_move() {
+                    if !captured_piece.is_empty() {
+                        entry.compute_see(state)
+                    }
+                }
+            })
     }
 
     #[inline(always)]
     pub fn get_next_move(
         &mut self,
+        state: &mut GameState,
         last_move_pos: u8,
         depth: usize,
         player: Player,
@@ -543,8 +559,8 @@ impl MoveBuffer {
             .filter(|x| x.is_some())
             .min_by(|x, y| {
                 move_orderer.cmp_move(
-                    x.unwrap(),
-                    y.unwrap(),
+                    x.as_ref().unwrap(),
+                    y.as_ref().unwrap(),
                     depth,
                     last_move_pos,
                     player,
@@ -552,6 +568,7 @@ impl MoveBuffer {
                 )
             })?
             .take()
+            .map(|x| x.get_move())
     }
 
     #[inline(always)]
@@ -570,13 +587,14 @@ impl MoveBuffer {
         self.move_buf[0..self.num_moves]
             .iter_mut()
             .filter(|x| x.is_some())
-            .find(|x| match x.unwrap() {
+            .find(|x| match x.unwrap().get_move() {
                 Move::Move { captured_piece, .. } | Move::PawnPromote { captured_piece, .. } => {
                     captured_piece.is_king()
                 }
                 _ => false,
             })?
             .take()
+            .map(|x| x.get_move())
     }
 
     #[inline(always)]
@@ -584,13 +602,15 @@ impl MoveBuffer {
         self.move_buf[0..self.num_moves]
             .iter_mut()
             .filter(|x| x.is_some())
-            .find(|x| **x == transposition_move)?
+            .find(|x| x.map(|x| x.get_move()) == transposition_move)?
             .take()
+            .map(|x| x.get_move())
     }
 
     #[inline(always)]
     pub fn get_next_move_positive_equal_capture(
         &mut self,
+        state: &mut GameState,
         last_move_pos: u8,
         depth: usize,
         player: Player,
@@ -600,11 +620,17 @@ impl MoveBuffer {
         self.move_buf[0..self.num_moves]
             .iter_mut()
             .filter(|x| x.is_some())
-            .filter(|x| MoveOrderer::move_is_positive_equal_capture(x.unwrap()))
+            .filter(|x| {
+                if x.unwrap().has_see() {
+                    x.unwrap().get_see_exn() >= 0
+                } else {
+                    false
+                }
+            })
             .min_by(|x, y| {
                 move_orderer.cmp_move(
-                    x.unwrap(),
-                    y.unwrap(),
+                    x.as_ref().unwrap(),
+                    y.as_ref().unwrap(),
                     depth,
                     last_move_pos,
                     player,
@@ -612,11 +638,13 @@ impl MoveBuffer {
                 )
             })?
             .take()
+            .map(|x| x.get_move())
     }
 
     #[inline(always)]
     pub fn get_quiescence_move(
         &mut self,
+        state: &mut GameState,
         last_move_pos: u8,
         depth: usize,
         player: Player,
@@ -626,7 +654,7 @@ impl MoveBuffer {
         self.move_buf[0..self.num_moves]
             .iter_mut()
             .filter(|x| x.is_some())
-            .filter(|x| match x.unwrap() {
+            .filter(|x| match x.unwrap().get_move() {
                 Move::Move {
                     new_pos,
                     captured_piece,
@@ -636,13 +664,15 @@ impl MoveBuffer {
                     new_pos,
                     captured_piece,
                     ..
-                } => new_pos == last_move_pos || captured_piece.is_king(),
+                } => 
+                // new_pos == last_move_pos || captured_piece.is_king(),
+                x.unwrap().get_see_exn() >= 0,
                 _ => false,
             })
             .min_by(|x, y| {
                 move_orderer.cmp_move(
-                    x.unwrap(),
-                    y.unwrap(),
+                    x.as_ref().unwrap(),
+                    y.as_ref().unwrap(),
                     depth,
                     last_move_pos,
                     player,
@@ -650,6 +680,7 @@ impl MoveBuffer {
                 )
             })?
             .take()
+            .map(|x| x.get_move())
     }
 
     #[inline(always)]
@@ -661,8 +692,9 @@ impl MoveBuffer {
         self.move_buf[0..self.num_moves]
             .iter_mut()
             .filter(|x| x.is_some())
-            .find(|x| move_orderer.move_is_killer(x.unwrap(), depth))?
+            .find(|x| move_orderer.move_is_killer(x.unwrap().get_move(), depth))?
             .take()
+            .map(|x| x.get_move())
     }
 
     // pub fn remove_noncaptures(&mut self) {

@@ -151,6 +151,12 @@ impl Default for GameState {
 }
 
 impl GameState {
+    pub fn new_with_hash(zoborist_state: &ZoboristState) -> Self{
+        let mut res = Self::default();
+        res.setup(zoborist_state);
+        res
+    }
+
     // todo: maybe relax legality checking for performance
     pub fn check_move_legal(&self, mov: Move) -> bool {
         match mov {
@@ -265,7 +271,7 @@ impl GameState {
         Ok(())
     }
 
-    pub fn new_from_fen(fen: &str) -> Result<Self, &'static str> {
+    pub fn new_from_fen(fen: &str, zoborist_state: &ZoboristState) -> Result<Self, &'static str> {
         let parts: Vec<_> = fen.split(' ').collect();
         let mut piece_grid = PieceGrid::default();
         let mut metadata = Metadata::default();
@@ -278,12 +284,15 @@ impl GameState {
         });
 
         // println!("metadata: {:b}", metadata.0);
-        Ok(Self {
+        let mut res = Self {
             piece_grid,
             metadata,
             player: Player::try_from(parts[1].chars().nth(0).ok_or("invalid fen")?)?,
             hash: 0,
-        })
+        };
+        res.setup(zoborist_state);
+
+        Ok(res)
     }
 
     #[inline(always)]
@@ -320,30 +329,20 @@ impl GameState {
     }
 
     // zoborist hash
-    // fn slow_compute_hash(&mut self, zoborist_state: &ZoboristState) {
-    //     self.apply_meta_hash(zoborist_state);
-    //     for player in [Player::White, Player::Black] {
-    //         for piece in [
-    //             Piece::Pawn,
-    //             Piece::Knight,
-    //             Piece::Bishop,
-    //             Piece::Rook,
-    //             Piece::Queen,
-    //             Piece::King,
-    //         ] {
-    //             for pos in 0..64 {
-    //                 if self.get_state(player).pieces[piece as usize].0 & (1 << pos) > 0 {
-    //                     self.apply_piece_hash(zoborist_state, player, piece, pos);
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
+    fn slow_compute_hash(&mut self, zoborist_state: &ZoboristState) {
+        self.apply_meta_hash(zoborist_state);
+        if self.player == Player::Black {
+            self.hash ^= zoborist_state.player;
+        }
+        for pos in 0..64u8 {
+            let square_type = self.piece_grid.get_square_type(pos);
+            self.apply_piece_hash(zoborist_state, square_type, pos);
+        }
+    }
 
-    // pub fn setup(&mut self, zoborist_state: &ZoboristState) {
-    //     self.states.iter_mut().for_each(|x| x.setup());
-    //     self.slow_compute_hash(zoborist_state);
-    // }
+    pub fn setup(&mut self, zoborist_state: &ZoboristState) {
+        self.slow_compute_hash(zoborist_state);
+    }
 
     // pub fn get_state(&self, player: Player) -> &PlayerState {
     //     &self.states[player as usize]
@@ -395,8 +394,6 @@ impl GameState {
                             .set_can_castle_dynamic::<false>(self.player.opp(), false);
                     }
 
-                    // if a rook is captured via pawn promotion, castling bits will fail. TODO fix
-
                     // potential en passant next move
                     if piece.is_pawn() && i32::abs(prev_pos as i32 - new_pos as i32) == 16 {
                         self.metadata.set_en_passant_column(prev_pos & 0b111);
@@ -440,6 +437,17 @@ impl GameState {
                 // pawn promotion
                 self.apply_piece_move(zoborist_state, SquareType::pawn(self.player), prev_pos);
                 self.apply_piece_move(zoborist_state, promoted_to_piece, new_pos);
+                if APPLY_METADATA_CHANGES {
+                    let offset_opp = (1 - self.player as u8) * 56;
+                    if captured_piece.is_rook() && new_pos == offset_opp {
+                        self.metadata
+                            .set_can_castle_dynamic::<false>(self.player.opp(), true);
+                    }
+                    if captured_piece.is_rook() && new_pos == offset_opp + 7 {
+                        self.metadata
+                            .set_can_castle_dynamic::<false>(self.player.opp(), false);
+                    }
+                }
             }
             Move::EnPassant {
                 prev_column,
@@ -474,50 +482,19 @@ impl GameState {
         }
     }
 
-    pub fn make_move_raw_parts(
-        &mut self,
-        prev_pos: u8,
-        new_pos: u8,
-        promoted_to_piece: Option<Piece>,
-    ) -> Result<(), &'static str> {
-        let piece = self.piece_grid.get_square_type(prev_pos);
-        let captured_piece = self.piece_grid.get_square_type(new_pos);
-        let next_move = if let Some(promoted_to_piece) = promoted_to_piece {
-            let promoted_to_piece = SquareType::create_for_parsing(promoted_to_piece, self.player);
-            Move::PawnPromote {
-                prev_pos,
-                new_pos,
-                promoted_to_piece,
-                captured_piece,
-            }
-        } else if piece.is_king() && i32::abs(prev_pos as i32 - new_pos as i32) == 2 {
-            Move::Castle {
-                is_short: new_pos < prev_pos,
-            }
-        } else if piece.is_pawn()
-            && (new_pos & 0b111 != prev_pos & 0b111)
-            && captured_piece.is_empty()
-        {
-            Move::EnPassant {
-                prev_column: prev_pos & 0b111,
-                new_column: new_pos & 0b111,
-            }
-        } else {
-            Move::Move {
-                prev_pos,
-                new_pos,
-                piece,
-                captured_piece,
-            }
-        };
-
-        self.advance_state(next_move, &ZoboristState::STATIC_EMPTY);
-        Ok(())
-    }
-
     // #[inline(always)]
     pub fn advance_state(&mut self, next_move: Move, zoborist_state: &ZoboristState) {
         self.modify_state::<true>(next_move, zoborist_state);
+        // switch the player
+        self.change_player(zoborist_state);
+    }
+
+    pub fn advance_state_no_metadata_update(
+        &mut self,
+        next_move: Move,
+        zoborist_state: &ZoboristState,
+    ) {
+        self.modify_state::<false>(next_move, zoborist_state);
         // switch the player
         self.change_player(zoborist_state);
     }

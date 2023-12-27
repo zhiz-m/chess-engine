@@ -14,6 +14,7 @@ mod types_for_io;
 mod movegen;
 mod player;
 mod markers;
+mod move_buffer_entry;
 
 pub use engine::ChessEngine;
 pub use game_data::GameState;

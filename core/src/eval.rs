@@ -18,6 +18,8 @@ const PIECE_PHASE: [u32; NUM_PIECES] = [0, 1, 1, 2, 4, 0];
 const MG_PIECE_VAL: [i32; NUM_PIECES] = [82, 337, 365, 477, 1025, KING_VALUE];
 const EG_PIECE_VAL: [i32; NUM_PIECES] = [94, 281, 297, 512, 936, KING_VALUE];
 
+pub const PAWN_VALUE: i32 = 82 * 24;
+
 #[rustfmt::skip]
 const MG_SQUARE_TABLE: [[i32; 64]; NUM_PIECES] = [
     // pawn

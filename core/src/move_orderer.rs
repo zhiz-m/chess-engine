@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::{config::KILLER_MOVES_PER_DEPTH, player::Player, types::Move};
+use crate::{config::KILLER_MOVES_PER_DEPTH, player::Player, types::Move, move_buffer_entry::MoveBufferEntry, GameState};
 
 #[derive(Clone, Copy)]
 pub struct KillerEntry {
@@ -63,8 +63,8 @@ impl MoveOrderer {
 
     pub fn cmp_move(
         &mut self,
-        x: Move,
-        y: Move,
+        x: &MoveBufferEntry,
+        y: & MoveBufferEntry,
         depth: usize,
         last_move_pos: u8,
         player: Player,
@@ -141,31 +141,19 @@ impl MoveOrderer {
     }
 
     #[inline(always)]
-    pub fn move_is_positive_equal_capture(mov: Move) -> bool {
-        match mov{
-            Move::Move{piece, captured_piece, ..} => {
-                // piece.value() <= captured_piece.value()
-                captured_piece.value() > 0
-            },
-            Move::EnPassant { .. } => true,
-            Move::PawnPromote { .. } => true, 
-            _ => false
-        }
-    }
-
-    #[inline(always)]
     pub fn move_is_killer(&self, mov: Move, depth: usize) -> bool {
         self.killer_moves[depth].contains(mov)
     }
 
     fn get_move_cmp_key(
         &mut self,
-        mov: Move,
+        move_buffer_entry: &MoveBufferEntry,
         last_move_pos: u8,
         killer_entry: KillerEntry,
         player: Player,
         transposition_move: Option<Move>,
     ) -> (u8, i32) {
+        let mov = move_buffer_entry.get_move();
         match mov {
             Move::Move {
                 new_pos,
@@ -181,19 +169,26 @@ impl MoveOrderer {
                     }
                 }
                 if !captured_piece.is_empty() {
-                    if new_pos == last_move_pos {
-                        (1, piece.value())
-                    } 
-                    else 
+                    // if new_pos == last_move_pos {
+                    //     (1, piece.value())
+                    // } 
+                    // else 
                     
-                    // if piece.value() <= captured_piece.value()
-                     {
-                        (2, piece.value() - captured_piece.value() * 100)
-                    }
+                    // // if piece.value() <= captured_piece.value()
+                    //  {
+                    //     (2, piece.value() - captured_piece.value() * 100)
+                    // }
                     // captures worth the same material are slightly preferred over non-killer silent moves
                     // else {
                     //     (4, piece.value() - captured_piece.value() * 100 - 1)
                     // }
+                    let see = move_buffer_entry.get_see_exn();
+                    if see >= 0 {
+                        (2, -see)
+                    }
+                    else{
+                        (5, -see)
+                    }
                 }
                  else if killer_entry.contains(mov) {
                     // println!("killer move");

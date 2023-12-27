@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-    config::{MOVE_TABLE_SIZE, NULL_MOVES_PER_BRANCH, NULL_MOVE_DEPTH_REDUCTION},
+    config::{MOVE_TABLE_SIZE, NULL_MOVES_PER_BRANCH, NULL_MOVE_DEPTH_REDUCTION, HashType},
     eval,
     grid::Grid,
     markers::{BlackMarker, WhiteMarker},
@@ -11,7 +11,7 @@ use crate::{
     player::Player,
     types::{Move, ValueMovePair},
     zoborist_state::ZoboristState,
-    GameState, game_data::Metadata,
+    GameState, game_data::Metadata, evaluate, Piece, square_type::SquareType,
 };
 
 struct EngineStatistics {
@@ -59,11 +59,12 @@ pub struct ChessEngine {
     move_bufs: Vec<MoveBuffer>,
     move_orderer: MoveOrderer,
     calculated_moves: Vec<ValueMovePair>,
-    zoborist_state: ZoboristState,
+    pub zoborist_state: ZoboristState,
     // state_cache: HashMap<HashType, (usize, i32), FxBuildHasher>
     state_cache: MoveTable<MOVE_TABLE_SIZE>,
     normal_depth: usize,
     quiescence_depth: usize,
+    visited_nodes: Vec<HashType>,
     stats: EngineStatistics,
 }
 
@@ -90,6 +91,7 @@ impl ChessEngine {
             state_cache: Default::default(),
             quiescence_depth,
             normal_depth,
+            visited_nodes: Vec::with_capacity(normal_depth*2),
             stats: Default::default(),
         }
     }
@@ -132,23 +134,18 @@ impl ChessEngine {
         if stand_pat >= beta {
             return beta;
         }
+        // let move_entry =
+        //     self.state_cache
+        //         .get_entry_for_ordering(state.hash, self.quiescence_depth as u8, state);
 
-        if let Some(MoveEntry { value, .. }) = self.state_cache.get_entry_for_direct_cutoff(
-            state.hash,
-            self.quiescence_depth as u8,
-            state,
-        ) {
-            self.stats.cache_direct_cutoff_hits += 1;
-            if value >= beta {
-                self.stats.cutoffs += 1;
-                self.stats.cutoffs_perfect_move_orderings += 1;
-                return value;
-            }
-        }
-
-        let move_entry =
-            self.state_cache
-                .get_entry_for_ordering(state.hash, self.quiescence_depth as u8, state);
+        // if let Some(MoveEntry { value, .. }) = move_entry {
+        //     self.stats.cache_direct_cutoff_hits += 1;
+        //     if value >= beta {
+        //         self.stats.cutoffs += 1;
+        //         self.stats.cutoffs_perfect_move_orderings += 1;
+        //         return value;
+        //     }
+        // }
 
         if alpha < stand_pat {
             alpha = stand_pat;
@@ -157,6 +154,7 @@ impl ChessEngine {
         // let move_buf = &mut self.move_bufs[depth];
         self.move_bufs[depth].clear();
         self.move_bufs[depth].get_all_captures(state);
+        self.move_bufs[depth].compute_see(state);
 
         // if self.move_bufs[depth].is_stalemate() {
         //     return 0;
@@ -166,10 +164,11 @@ impl ChessEngine {
         let mut first_move_explored = true;
 
         while let Some(next_move) = self.move_bufs[depth].get_quiescence_move(
+            state,
             last_move_pos,
             depth,
             state.player,
-            move_entry.map(|x| x.mov),
+            None,
             &mut self.move_orderer,
         ) {
             match next_move {
@@ -188,16 +187,28 @@ impl ChessEngine {
                         return result;
                     }
                     if captured_piece.is_empty() {
-                        // panic!("unexpected, captured piece should not be empty");
+                        panic!("unexpected, captured piece should not be empty");
                     }
                     if captured_piece.is_empty() || new_pos != last_move_pos {
-                        first_move_explored = false;
-                        continue;
+                        // println!("hi");
+                        // first_move_explored = false;
+                        // continue;
                     }
                     let metadata = state.metadata;
                     state.apply_meta_hash(&self.zoborist_state);
                     state.advance_state(next_move, &self.zoborist_state);
                     state.apply_meta_hash(&self.zoborist_state);
+                    
+                    // futility pruning
+                    // if evaluate(state) + 2 * eval::PAWN_VALUE < alpha {
+                    //     state.apply_meta_hash(&self.zoborist_state);
+                    //     state.revert_state(next_move, &self.zoborist_state);
+
+                    //     // revert metadata: easiest to do this way
+                    //     state.metadata = metadata;
+                    //     state.apply_meta_hash(&self.zoborist_state);
+                    //     continue;
+                    // }
 
                     // update meta values
                     let score = -self.quiescence(state, -beta, -alpha, depth - 1, last_move_pos);
@@ -209,31 +220,32 @@ impl ChessEngine {
                     state.metadata = metadata;
                     state.apply_meta_hash(&self.zoborist_state);
 
+                    if score > alpha {
+                        alpha = score;
+                        best_move = Some(next_move);
+                    }
                     if score >= beta {
                         self.stats.cutoffs += 1;
                         if first_move_explored {
                             self.stats.cutoffs_perfect_move_orderings += 1;
                         }
-                        return beta;
+                        // return beta;
+                        break;
                     }
 
-                    if score > alpha {
-                        alpha = score;
-                        best_move = Some(next_move);
-                    }
                 }
                 _ => {}
             }
             first_move_explored = false;
         }
-        if let Some(mov) = best_move {
-            self.state_cache.insert_entry(MoveEntry {
-                hash: state.hash,
-                mov,
-                depth: self.quiescence_depth as u8,
-                value: alpha,
-            });
-        }
+        // if let Some(mov) = best_move {
+        //     self.state_cache.insert_entry(MoveEntry {
+        //         hash: state.hash,
+        //         mov,
+        //         depth: self.quiescence_depth as u8,
+        //         value: alpha,
+        //     });
+        // }
 
         alpha
     }
@@ -249,13 +261,11 @@ impl ChessEngine {
         null_move_count: u8,
         is_root: bool,
     ) -> i32 {
-        // self.stats.max_depth_encountered = self.stats.max_depth_encountered.min(depth);
-        if depth <= self.quiescence_depth {
-            return self.quiescence(state, alpha, beta, self.quiescence_depth, last_move_pos);
+        if self.visited_nodes.contains(&state.hash){
+            // repetition.
+            return 0;
         }
-
-        self.stats.nodes_explored += 1;
-        self.try_print_debug(alpha, beta, state);
+        self.visited_nodes.push(state.hash);
 
         // transposition table hit
         if let Some(MoveEntry { value, .. }) = self.state_cache.get_entry_for_direct_cutoff(
@@ -267,10 +277,20 @@ impl ChessEngine {
             if value >= beta {
                 self.stats.cutoffs += 1;
                 self.stats.cutoffs_perfect_move_orderings += 1;
+                self.visited_nodes.pop().unwrap();
                 return value;
             }
             // return value;
         }
+        // self.stats.max_depth_encountered = self.stats.max_depth_encountered.min(depth);
+        if depth <= self.quiescence_depth {
+            self.visited_nodes.pop().unwrap();
+            return self.quiescence(state, alpha, beta, self.quiescence_depth, last_move_pos);
+        }
+
+        self.stats.nodes_explored += 1;
+        self.try_print_debug(alpha, beta, state);
+
 
         let move_entry = self.state_cache.get_entry_for_ordering(
             state.hash,
@@ -307,6 +327,7 @@ impl ChessEngine {
 
             if next_val >= beta {
                 self.stats.null_move_fail_highs += 1;
+                self.visited_nodes.pop().unwrap();
                 return next_val;
             }
         }
@@ -319,6 +340,7 @@ impl ChessEngine {
         self.move_bufs[depth].get_all_moves(state);
 
         if self.move_bufs[depth].is_stalemate() {
+            self.visited_nodes.pop().unwrap();
             return 0;
         }
 
@@ -357,6 +379,7 @@ impl ChessEngine {
                         if captured_piece.is_king() {
                             let result = eval::SCORE_AFTER_KING_CAPTURED;
                             try_store_move(self, result);
+                            self.visited_nodes.pop().unwrap();
                             return result;
                         }
                     }
@@ -457,7 +480,9 @@ impl ChessEngine {
         }
 
         if !has_cutoff {
+            self.move_bufs[depth].compute_see(state);
             while let Some(next_move) = self.move_bufs[depth].get_next_move_positive_equal_capture(
+                state,
                 last_move_pos,
                 depth,
                 state.player,
@@ -478,6 +503,7 @@ impl ChessEngine {
 
         if !has_cutoff {
             while let Some(next_move) = self.move_bufs[depth].get_next_move(
+                state,
                 last_move_pos,
                 depth,
                 state.player,
@@ -515,10 +541,12 @@ impl ChessEngine {
 
             // checkmate
             if attacked_grid & king_pos != Grid::EMPTY {
+                self.visited_nodes.pop().unwrap();
                 return -eval::WIN_THRESHOLD - (depth as i32);
             }
 
             // stalemate
+            self.visited_nodes.pop().unwrap();
             return 0;
         }
 
@@ -538,10 +566,20 @@ impl ChessEngine {
             }
         }
 
+        self.visited_nodes.pop().unwrap();
         value
     }
 
     pub fn solve(&mut self, state: &GameState, depth: usize) -> i32 {
+        // the engine will never visit the same state more than once. hence, to avoid threefold repetition,
+        // we only care about previous moves that appear more than once. 
+        let mut new_visited_nodes = vec![];
+        for item in self.visited_nodes.iter(){
+            if self.visited_nodes.iter().filter(|x|**x == *item).count() > 1{
+                new_visited_nodes.push(*item);
+            }
+        }
+        self.visited_nodes = new_visited_nodes;
         assert!(depth <= self.normal_depth);
         let mut state = state.clone();
         // state.setup(&self.zoborist_state);
@@ -671,5 +709,52 @@ impl ChessEngine {
         });
 
         cnt
+    }
+    
+    pub fn clear_move_history_threefold_repetition(&mut self){
+        self.visited_nodes.clear();
+    }
+
+    pub fn make_move_raw_parts(
+        &mut self,
+        game_state: &mut GameState,
+        prev_pos: u8,
+        new_pos: u8,
+        promoted_to_piece: Option<Piece>,
+    ) -> Result<(), &'static str> {
+        let piece = game_state.piece_grid.get_square_type(prev_pos);
+        let captured_piece = game_state.piece_grid.get_square_type(new_pos);
+        let next_move = if let Some(promoted_to_piece) = promoted_to_piece {
+            let promoted_to_piece = SquareType::create_for_parsing(promoted_to_piece, game_state.player);
+            Move::PawnPromote {
+                prev_pos,
+                new_pos,
+                promoted_to_piece,
+                captured_piece,
+            }
+        } else if piece.is_king() && i32::abs(prev_pos as i32 - new_pos as i32) == 2 {
+            Move::Castle {
+                is_short: new_pos < prev_pos,
+            }
+        } else if piece.is_pawn()
+            && (new_pos & 0b111 != prev_pos & 0b111)
+            && captured_piece.is_empty()
+        {
+            Move::EnPassant {
+                prev_column: prev_pos & 0b111,
+                new_column: new_pos & 0b111,
+            }
+        } else {
+            Move::Move {
+                prev_pos,
+                new_pos,
+                piece,
+                captured_piece,
+            }
+        };
+
+        self.visited_nodes.push(game_state.hash);
+        game_state.advance_state(next_move, &self.zoborist_state);
+        Ok(())
     }
 }

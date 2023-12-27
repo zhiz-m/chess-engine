@@ -344,7 +344,7 @@ impl PieceGrid {
     pub fn debug_print(&self) {
         for pos in 0..64{
             let square_type = self.get_square_type(pos);
-            println!("pos {} square_type {}", pos, square_type.to_raw());
+            println!("pos {} {} square_type {}", pos, util::coord_to_canonical(util::pos_to_coord(pos)), square_type.to_raw());
         }
     }
 }
