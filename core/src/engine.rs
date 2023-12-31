@@ -11,11 +11,12 @@ use crate::{
     player::Player,
     types::{Move, ValueMovePair},
     zoborist_state::ZoboristState,
-    GameState, game_data::Metadata, evaluate, Piece, square_type::SquareType,
+    GameState, game_data::Metadata, evaluate, Piece, square_type::{SquareType, CompressedSquareType},
 };
 
 struct EngineStatistics {
     nodes_explored: u64,
+    terminal_nodes: u64,
     quiescence_nodes: u64,
     cache_direct_cutoff_hits: u64,
     cache_hits: u64,
@@ -28,7 +29,8 @@ struct EngineStatistics {
 impl Default for EngineStatistics {
     fn default() -> Self {
         Self {
-            nodes_explored: Default::default(),
+            nodes_explored: 0,
+            terminal_nodes: 0,
             quiescence_nodes: Default::default(),
             cache_direct_cutoff_hits: Default::default(),
             cache_hits: Default::default(),
@@ -106,11 +108,17 @@ impl ChessEngine {
         }
     }
 
+    pub fn print_debug(&self) {
+        println!("{} nodes, {} terminal nodes", self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.terminal_nodes, )
+    }
+
     fn try_print_debug(&self, alpha: i32, beta: i32, state: &GameState) {
         if (self.stats.quiescence_nodes + self.stats.nodes_explored) % 100000 == 0 {
             println!(
-                "explored {} nodes, {}/{} normal/quiescence nodes, {} cutoffs, {} perfect cutoffs, alpha: {}, beta: {}, direct cache hits: {}, cache hits: {}, current_score: {}, max_depth_encountered: {}",
-                self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.nodes_explored, self.stats.quiescence_nodes, self.stats.cutoffs, self.stats.cutoffs_perfect_move_orderings, alpha, beta, self.stats.cache_direct_cutoff_hits, self.stats.cache_hits, eval::evaluate(state), self.stats.max_depth_encountered
+                "explored {} nodes, {} terminal nodes, {} branching factor, {}/{} normal/quiescence nodes, {} cutoffs, {} perfect cutoffs, alpha: {}, beta: {}, direct cache hits: {}, cache hits: {}, current_score: {}, max_depth_encountered: {}",
+                self.stats.nodes_explored + self.stats.quiescence_nodes, self.stats.terminal_nodes, 
+                (self.stats.nodes_explored as f64 + self.stats.quiescence_nodes as f64) / (self.stats.nodes_explored as f64+ self.stats.quiescence_nodes as f64 - self.stats.terminal_nodes as f64),
+                 self.stats.nodes_explored, self.stats.quiescence_nodes, self.stats.cutoffs, self.stats.cutoffs_perfect_move_orderings, alpha, beta, self.stats.cache_direct_cutoff_hits, self.stats.cache_hits, eval::evaluate(state), self.stats.max_depth_encountered
             );
         }
     }
@@ -123,15 +131,18 @@ impl ChessEngine {
         depth: usize,
         last_move_pos: u8,
     ) -> i32 {
+        self.stats.quiescence_nodes += 1;
+        self.stats.terminal_nodes += 1;
         let stand_pat = Self::scoring_function(state);
         // self.stats.max_depth_encountered = self.stats.max_depth_encountered.min(depth);
         if depth == self.normal_depth + 1 {
+            self.stats.terminal_nodes -= 1;
             return stand_pat;
         }
-        self.stats.quiescence_nodes += 1;
         self.try_print_debug(alpha, beta, state);
 
         if stand_pat >= beta {
+            self.stats.terminal_nodes -= 1;
             return beta;
         }
         // let move_entry =
@@ -173,15 +184,16 @@ impl ChessEngine {
         ) {
             match next_move {
                 Move::Move {
-                    captured_piece,
+                    pieces,
                     new_pos,
                     ..
                 }
                 | Move::PawnPromote {
                     new_pos,
-                    captured_piece,
+                    pieces,
                     ..
                 } => {
+                    let (_, captured_piece) = pieces.to_square_types();
                     if captured_piece.is_king() {
                         let result = eval::SCORE_AFTER_KING_CAPTURED;
                         return result;
@@ -261,8 +273,11 @@ impl ChessEngine {
         null_move_count: u8,
         is_root: bool,
     ) -> i32 {
+        self.stats.nodes_explored += 1;
+        self.stats.terminal_nodes += 1;
         if self.visited_nodes.contains(&state.hash){
             // repetition.
+            self.stats.terminal_nodes -= 1;
             return 0;
         }
         self.visited_nodes.push(state.hash);
@@ -278,6 +293,7 @@ impl ChessEngine {
                 self.stats.cutoffs += 1;
                 self.stats.cutoffs_perfect_move_orderings += 1;
                 self.visited_nodes.pop().unwrap();
+                self.stats.terminal_nodes -= 1;
                 return value;
             }
             // return value;
@@ -285,10 +301,11 @@ impl ChessEngine {
         // self.stats.max_depth_encountered = self.stats.max_depth_encountered.min(depth);
         if depth <= self.quiescence_depth {
             self.visited_nodes.pop().unwrap();
+            self.stats.nodes_explored -= 1;
+            self.stats.terminal_nodes -= 1;
             return self.quiescence(state, alpha, beta, self.quiescence_depth, last_move_pos);
         }
 
-        self.stats.nodes_explored += 1;
         self.try_print_debug(alpha, beta, state);
 
 
@@ -370,12 +387,14 @@ impl ChessEngine {
                             engine
                                 .calculated_moves
                                 .push(ValueMovePair(next_val, $next_move));
+                            // println!("try store move {} {}", next_val, $next_move);
                         }
                     }
                 };
                 match $next_move {
-                    Move::Move { captured_piece, .. }
-                    | Move::PawnPromote { captured_piece, .. } => {
+                    Move::Move { pieces, .. }
+                    | Move::PawnPromote { pieces, .. } => {
+                        let (_, captured_piece) = pieces.to_square_types();
                         if captured_piece.is_king() {
                             let result = eval::SCORE_AFTER_KING_CAPTURED;
                             try_store_move(self, result);
@@ -441,7 +460,8 @@ impl ChessEngine {
                 }
                 // value = i32::max(value, next_val);
 
-                if value >= beta {
+                try_store_move(self, next_val);
+                if value >= beta{
                     self.stats.cutoffs += 1;
                     if first_move_explored {
                         self.stats.cutoffs_perfect_move_orderings += 1;
@@ -449,7 +469,6 @@ impl ChessEngine {
                     has_cutoff = true;
                     break;
                 }
-                try_store_move(self, next_val);
                 alpha = i32::max(alpha, value);
                 // } else {
                 //     // value = i32::min(value, next_val);
@@ -493,13 +512,13 @@ impl ChessEngine {
             }
         }
 
-        // if !has_cutoff {
-        //     while let Some(next_move) =
-        //         self.move_bufs[depth].get_next_move_killer(depth, &mut self.move_orderer)
-        //     {
-        //         loop_inner!(next_move);
-        //     }
-        // }
+        if !has_cutoff {
+            while let Some(next_move) =
+                self.move_bufs[depth].get_next_move_killer(depth, &mut self.move_orderer)
+            {
+                loop_inner!(next_move);
+            }
+        }
 
         if !has_cutoff {
             while let Some(next_move) = self.move_bufs[depth].get_next_move(
@@ -560,7 +579,8 @@ impl ChessEngine {
             self.move_orderer
                 .update_history(mov, state.player, depth - self.quiescence_depth + 1);
         }
-        if let Some(best_move @ Move::Move { captured_piece, .. }) = best_move {
+        if let Some(best_move @ Move::Move { pieces, .. }) = best_move {
+            let (_, captured_piece) = pieces.to_square_types();
             if captured_piece.is_empty() {
                 self.move_orderer.insert_killer_move(best_move, depth);
             }
@@ -573,6 +593,7 @@ impl ChessEngine {
     pub fn solve(&mut self, state: &GameState, depth: usize) -> i32 {
         // the engine will never visit the same state more than once. hence, to avoid threefold repetition,
         // we only care about previous moves that appear more than once. 
+        println!("static eval: {}", eval::evaluate(state));
         let mut new_visited_nodes = vec![];
         for item in self.visited_nodes.iter(){
             if self.visited_nodes.iter().filter(|x|**x == *item).count() > 1{
@@ -726,11 +747,11 @@ impl ChessEngine {
         let captured_piece = game_state.piece_grid.get_square_type(new_pos);
         let next_move = if let Some(promoted_to_piece) = promoted_to_piece {
             let promoted_to_piece = SquareType::create_for_parsing(promoted_to_piece, game_state.player);
+            let pieces = CompressedSquareType::from_square_types(promoted_to_piece, captured_piece);
             Move::PawnPromote {
                 prev_pos,
                 new_pos,
-                promoted_to_piece,
-                captured_piece,
+                pieces
             }
         } else if piece.is_king() && i32::abs(prev_pos as i32 - new_pos as i32) == 2 {
             Move::Castle {
@@ -745,16 +766,20 @@ impl ChessEngine {
                 new_column: new_pos & 0b111,
             }
         } else {
+            let pieces = CompressedSquareType::from_square_types(piece, captured_piece);
             Move::Move {
                 prev_pos,
                 new_pos,
-                piece,
-                captured_piece,
+                pieces
             }
         };
 
         self.visited_nodes.push(game_state.hash);
         game_state.advance_state(next_move, &self.zoborist_state);
         Ok(())
+    }
+
+    pub fn lift_killer_moves(&mut self, depth_to_lift: usize){
+        self.move_orderer.lift_killer_moves(depth_to_lift)
     }
 }

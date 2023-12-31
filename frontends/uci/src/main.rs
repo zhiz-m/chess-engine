@@ -77,15 +77,18 @@ fn move_engine_to_uci(player: Player, mov: Move) -> UciMove {
         Move::PawnPromote {
             prev_pos,
             new_pos,
-            promoted_to_piece,
+            pieces,
             ..
-        } => (
-            prev_pos,
-            new_pos,
-            Some(piece_engine_to_uci(
-                promoted_to_piece.to_piece_for_io().expect("cannot be none"),
-            )),
-        ),
+        } => {
+            let (promoted_to_piece, _) = pieces.to_square_types();
+            (
+                prev_pos,
+                new_pos,
+                Some(piece_engine_to_uci(
+                    promoted_to_piece.to_piece_for_io().expect("cannot be none"),
+                )),
+            )
+        }
         Move::EnPassant {
             prev_column,
             new_column,
@@ -106,7 +109,7 @@ const AUTHOR: &'static str = "loglogn";
 
 fn main() {
     let mut game_state = GameState::default();
-    let mut engine = ChessEngine::new(16, 40,13);
+    let mut engine = ChessEngine::new(16, 40, 13);
     for line in io::stdin().lock().lines() {
         let msg: UciMessage = parse_one(&line.unwrap());
 
@@ -144,7 +147,12 @@ fn main() {
                     let to_u8 = |s: UciSquare| canonical_to_pos(&format!("{}{}", s.file, s.rank));
                     let promoted_to_piece = promotion.map(piece_uci_to_engine);
                     engine
-                        .make_move_raw_parts(&mut game_state, to_u8(from), to_u8(to), promoted_to_piece)
+                        .make_move_raw_parts(
+                            &mut game_state,
+                            to_u8(from),
+                            to_u8(to),
+                            promoted_to_piece,
+                        )
                         .unwrap();
                 }
             }
@@ -171,15 +179,17 @@ fn main() {
                 //     thread::sleep(max_duration);
                 //     let mov = handle.join();
                 // });
+                let start = SystemTime::now();
+
                 let depth = (|| {
                     let search_control = search_control?;
                     let depth = search_control.depth?;
                     Some(depth)
                 })()
-                .unwrap_or(8);
+                .unwrap_or(10);
                 let mut mov = Move::Castle { is_short: false };
                 let mut score = 0;
-                for i in ((2-(depth as usize % 2))..=(depth as usize)).step_by(2) {
+                for i in ((2 - (depth as usize % 2))..=(depth as usize)).step_by(2) {
                     println!(
                         "{}",
                         UciMessage::Info(vec![UciInfoAttribute::Any(
@@ -203,6 +213,8 @@ fn main() {
                             )
                         )])
                     );
+
+                    engine.lift_killer_moves(2);
                 }
                 println!(
                     "{}",
@@ -221,11 +233,22 @@ fn main() {
                 );
                 println!(
                     "{}",
+                    UciMessage::Info(vec![UciInfoAttribute::Any(
+                        "time".to_owned(),
+                        format!(
+                            "{} ms",
+                            SystemTime::now().duration_since(start).unwrap().as_millis()
+                        )
+                    )])
+                );
+                println!(
+                    "{}",
                     UciMessage::BestMove {
                         best_move: move_engine_to_uci(game_state.player, mov),
                         ponder: None
                     }
                 );
+                engine.print_debug()
             }
 
             UciMessage::Unknown(msg, _) => {

@@ -1,6 +1,10 @@
 use std::fmt::Display;
 
-use crate::{square_type::SquareType, types_for_io::Piece, util};
+use crate::{
+    square_type::{CompressedSquareType, SquareType},
+    types_for_io::Piece,
+    util,
+};
 
 // #[derive(Clone, Copy, PartialEq, Debug, Eq)]
 // pawn: a & !b & c
@@ -89,8 +93,9 @@ pub enum Move {
     Move {
         prev_pos: u8,
         new_pos: u8,
-        piece: SquareType,
-        captured_piece: SquareType,
+        // piece: SquareType,
+        // captured_piece: SquareType,
+        pieces: CompressedSquareType, // (piece, captured_piece)
     },
     Castle {
         is_short: bool,
@@ -98,8 +103,9 @@ pub enum Move {
     PawnPromote {
         prev_pos: u8,
         new_pos: u8,
-        promoted_to_piece: SquareType,
-        captured_piece: SquareType,
+        // promoted_to_piece: SquareType,
+        // captured_piece: SquareType,
+        pieces: CompressedSquareType, // (promoted_to_piece, captured_piece)
     },
     EnPassant {
         prev_column: u8,
@@ -168,9 +174,9 @@ impl Display for Move {
             Move::Move {
                 prev_pos,
                 new_pos,
-                piece,
-                captured_piece,
+                pieces,
             } => {
+                let (piece, captured_piece) = pieces.to_square_types();
                 let piece = piece.to_piece_for_io().expect("cannot be empty");
                 let captured_piece = captured_piece.to_piece_for_io();
                 match captured_piece {
@@ -194,12 +200,13 @@ impl Display for Move {
             Move::PawnPromote {
                 prev_pos,
                 new_pos,
-                promoted_to_piece,
-                captured_piece,
+                pieces,
             } => {
+                let (promoted_to_piece, captured_piece) = pieces.to_square_types();
                 let captured_piece = captured_piece.to_piece_for_io();
-                let promoted_to_piece =
-                    promoted_to_piece.to_piece_for_io().expect("cannot be empty");
+                let promoted_to_piece = promoted_to_piece
+                    .to_piece_for_io()
+                    .expect("cannot be empty");
                 match captured_piece {
                     Some(captured_piece) => format!(
                         "{} {} to {}, capturing {}, promoting to {}",

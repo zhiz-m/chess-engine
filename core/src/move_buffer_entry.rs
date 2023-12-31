@@ -1,5 +1,5 @@
 use crate::{
-    grid::Grid, markers::PlayerMarker, movegen, player_to_marker, square_type::SquareType,
+    grid::Grid, markers::PlayerMarker, movegen, player_to_marker, square_type::{SquareType, CompressedSquareType},
     zoborist_state::ZoboristState, GameState, Move,
 };
 
@@ -42,8 +42,9 @@ impl MoveBufferEntry {
                         return Some(Move::Move {
                             prev_pos,
                             new_pos,
-                            piece: SquareType::pawn(P::PLAYER),
-                            captured_piece,
+                            pieces: CompressedSquareType::from_square_types(
+                            SquareType::pawn(P::PLAYER),
+                            captured_piece),
                         });
                     }
                 }
@@ -69,8 +70,9 @@ impl MoveBufferEntry {
                         return Some(Move::Move {
                             prev_pos,
                             new_pos,
-                            piece: SquareType::knight(P::PLAYER),
-                            captured_piece,
+                            pieces: CompressedSquareType::from_square_types(
+                            SquareType::knight(P::PLAYER),
+                            captured_piece),
                         });
                     }
                 }
@@ -100,8 +102,9 @@ impl MoveBufferEntry {
                         return Some(Move::Move {
                             prev_pos,
                             new_pos,
-                            piece: SquareType::bishop(P::PLAYER),
-                            captured_piece,
+                            pieces: CompressedSquareType::from_square_types(
+                            SquareType::bishop(P::PLAYER),
+                            captured_piece),
                         });
                     }
                 }
@@ -131,8 +134,9 @@ impl MoveBufferEntry {
                         return Some(Move::Move {
                             prev_pos,
                             new_pos,
-                            piece: SquareType::rook(P::PLAYER),
-                            captured_piece,
+                            pieces: CompressedSquareType::from_square_types(
+                            SquareType::rook(P::PLAYER),
+                            captured_piece),
                         });
                     }
                 }
@@ -170,8 +174,9 @@ impl MoveBufferEntry {
                         return Some(Move::Move {
                             prev_pos,
                             new_pos,
-                            piece: SquareType::queen(P::PLAYER),
-                            captured_piece,
+                            pieces: CompressedSquareType::from_square_types(
+                            SquareType::queen(P::PLAYER),
+                            captured_piece),
                         });
                     }
                 }
@@ -199,8 +204,9 @@ impl MoveBufferEntry {
                     return Some(Move::Move {
                         prev_pos,
                         new_pos,
-                        piece: SquareType::king(P::PLAYER),
-                        captured_piece,
+                        pieces: CompressedSquareType::from_square_types(
+                        SquareType::king(P::PLAYER),
+                        captured_piece),
                     });
                 }
             }
@@ -244,14 +250,15 @@ impl MoveBufferEntry {
         self.see.get_or_insert_with(|| match self.mov {
             Move::Move {
                 new_pos,
-                captured_piece,
+                pieces,
                 ..
             }
             | Move::PawnPromote {
                 new_pos,
-                captured_piece,
+                pieces,
                 ..
             } => {
+                let (_, captured_piece) = pieces.to_square_types();
                 assert!(!captured_piece.is_empty());
                 state.advance_state_no_metadata_update(self.mov, &ZoboristState::STATIC_EMPTY);
                 let res = captured_piece.value() as i32 - Self::internal_compute_see(new_pos, state);

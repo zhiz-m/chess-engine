@@ -1,7 +1,16 @@
 use crate::{
-    config::MAX_CHILDREN_PER_NODE, game_data::Metadata, grid::Grid, markers::*,
-    move_buffer_entry::MoveBufferEntry, move_orderer::MoveOrderer, movegen, player::Player,
-    square_type::SquareType, types::Move, zoborist_state::ZoboristState, GameState,
+    config::MAX_CHILDREN_PER_NODE,
+    game_data::Metadata,
+    grid::Grid,
+    markers::*,
+    move_buffer_entry::MoveBufferEntry,
+    move_orderer::MoveOrderer,
+    movegen,
+    player::Player,
+    square_type::{CompressedSquareType, SquareType},
+    types::Move,
+    zoborist_state::ZoboristState,
+    GameState,
 };
 
 #[derive(Clone, PartialEq)]
@@ -44,8 +53,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
 
@@ -59,8 +67,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
 
@@ -99,8 +106,10 @@ impl MoveBuffer {
                     self.emit_move(Move::PawnPromote {
                         prev_pos,
                         new_pos,
-                        promoted_to_piece,
-                        captured_piece,
+                        pieces: CompressedSquareType::from_square_types(
+                            promoted_to_piece,
+                            captured_piece,
+                        ),
                     })
                 }
             }
@@ -122,8 +131,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
 
@@ -182,8 +190,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
         }
@@ -203,8 +210,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
         }
@@ -227,8 +233,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
         }
@@ -251,8 +256,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
         }
@@ -276,8 +280,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
         }
@@ -300,8 +303,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
         }
@@ -325,8 +327,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
 
@@ -343,8 +344,7 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
-                    piece,
-                    captured_piece,
+                    pieces: CompressedSquareType::from_square_types(piece, captured_piece),
                 })
             }
         }
@@ -368,8 +368,9 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
+                    pieces: CompressedSquareType::from_square_types(
                     piece,
-                    captured_piece,
+                    captured_piece),
                 })
             }
 
@@ -385,8 +386,9 @@ impl MoveBuffer {
                 self.emit_move(Move::Move {
                     prev_pos,
                     new_pos,
+                    pieces: CompressedSquareType::from_square_types(
                     piece,
-                    captured_piece,
+                    captured_piece),
                 })
             }
         }
@@ -429,9 +431,9 @@ impl MoveBuffer {
             let captured_piece = state.piece_grid.get_square_type(new_pos);
             self.emit_move(Move::Move {
                 prev_pos,
-                new_pos,
+                new_pos,pieces: CompressedSquareType::from_square_types(
                 piece,
-                captured_piece,
+                captured_piece),
             })
         }
 
@@ -468,9 +470,9 @@ impl MoveBuffer {
             let captured_piece = state.piece_grid.get_square_type(new_pos);
             self.emit_move(Move::Move {
                 prev_pos,
-                new_pos,
+                new_pos,pieces: CompressedSquareType::from_square_types(
                 piece,
-                captured_piece,
+                captured_piece),
             })
         }
     }
@@ -536,7 +538,8 @@ impl MoveBuffer {
             .map(|x| x.as_mut())
             .filter_map(|x| x)
             .for_each(|entry| {
-                if let Move::Move { captured_piece, .. } = entry.get_move() {
+                if let Move::Move { pieces, .. } = entry.get_move() {
+                    let (_, captured_piece) = pieces.to_square_types();
                     if !captured_piece.is_empty() {
                         entry.compute_see(state)
                     }
@@ -588,7 +591,8 @@ impl MoveBuffer {
             .iter_mut()
             .filter(|x| x.is_some())
             .find(|x| match x.unwrap().get_move() {
-                Move::Move { captured_piece, .. } | Move::PawnPromote { captured_piece, .. } => {
+                Move::Move { pieces, .. } | Move::PawnPromote { pieces, .. } => {
+                    let (_, captured_piece) = pieces.to_square_types();
                     captured_piece.is_king()
                 }
                 _ => false,
@@ -657,16 +661,18 @@ impl MoveBuffer {
             .filter(|x| match x.unwrap().get_move() {
                 Move::Move {
                     new_pos,
-                    captured_piece,
+                    pieces,
                     ..
                 }
                 | Move::PawnPromote {
                     new_pos,
-                    captured_piece,
+                    pieces,
                     ..
-                } => 
+                } =>
                 // new_pos == last_move_pos || captured_piece.is_king(),
-                x.unwrap().get_see_exn() >= 0,
+                {
+                    x.unwrap().get_see_exn() >= 0
+                }
                 _ => false,
             })
             .min_by(|x, y| {

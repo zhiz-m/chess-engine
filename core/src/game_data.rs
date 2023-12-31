@@ -151,7 +151,7 @@ impl Default for GameState {
 }
 
 impl GameState {
-    pub fn new_with_hash(zoborist_state: &ZoboristState) -> Self{
+    pub fn new_with_hash(zoborist_state: &ZoboristState) -> Self {
         let mut res = Self::default();
         res.setup(zoborist_state);
         res
@@ -163,9 +163,9 @@ impl GameState {
             Move::Move {
                 prev_pos,
                 new_pos,
-                piece,
-                captured_piece,
+                pieces,
             } => {
+                let (piece, captured_piece) = pieces.to_square_types();
                 self.piece_grid
                     .get_squares_of_type(piece)
                     .all_squares_occupied(Grid::from_pos(prev_pos))
@@ -180,9 +180,10 @@ impl GameState {
             Move::PawnPromote {
                 prev_pos,
                 new_pos,
-                captured_piece,
+                pieces,
                 ..
             } => {
+                let (_, captured_piece) = pieces.to_square_types();
                 player_to_marker!(self.player, { self.piece_grid.get_pawn_pos::<P>() })
                     .all_squares_occupied(Grid::from_pos(prev_pos))
                     && self
@@ -352,7 +353,7 @@ impl GameState {
     //     &mut self.states[player as usize]
     // }
 
-    #[inline(always)]
+    // #[inline(always)]
     fn modify_state<const APPLY_METADATA_CHANGES: bool>(
         &mut self,
         next_move: Move,
@@ -367,9 +368,9 @@ impl GameState {
             Move::Move {
                 prev_pos,
                 new_pos,
-                piece,
-                captured_piece,
+                pieces,
             } => {
+                let (piece, captured_piece) = pieces.to_square_types();
                 self.apply_piece_move(zoborist_state, captured_piece, new_pos);
 
                 self.apply_piece_move(zoborist_state, piece, prev_pos);
@@ -429,9 +430,9 @@ impl GameState {
             Move::PawnPromote {
                 prev_pos,
                 new_pos,
-                promoted_to_piece,
-                captured_piece,
+                pieces,
             } => {
+                let (promoted_to_piece, captured_piece) = pieces.to_square_types();
                 self.apply_piece_move(zoborist_state, captured_piece, new_pos);
 
                 // pawn promotion
@@ -482,7 +483,7 @@ impl GameState {
         }
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     pub fn advance_state(&mut self, next_move: Move, zoborist_state: &ZoboristState) {
         self.modify_state::<true>(next_move, zoborist_state);
         // switch the player
@@ -499,7 +500,7 @@ impl GameState {
         self.change_player(zoborist_state);
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     pub fn revert_state(&mut self, next_move: Move, zoborist_state: &ZoboristState) {
         // switch the player
         self.change_player(zoborist_state);

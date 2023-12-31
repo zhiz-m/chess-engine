@@ -1,6 +1,9 @@
 use std::cmp::Ordering;
 
-use crate::{config::KILLER_MOVES_PER_DEPTH, player::Player, types::Move, move_buffer_entry::MoveBufferEntry, GameState};
+use crate::{
+    config::KILLER_MOVES_PER_DEPTH, move_buffer_entry::MoveBufferEntry, player::Player,
+    types::Move, GameState,
+};
 
 #[derive(Clone, Copy)]
 pub struct KillerEntry {
@@ -37,7 +40,7 @@ impl KillerEntry {
 
 pub struct MoveOrderer {
     killer_moves: Vec<KillerEntry>,
-    history_table: [[[i32; 64]; 64]; 2],
+    history_table: [[[u32; 64]; 64]; 2],
 }
 
 impl MoveOrderer {
@@ -45,26 +48,35 @@ impl MoveOrderer {
     //     self.killer_moves[depth].contains(mov)
     // }
     pub fn new(depth: usize) -> Self {
-        const ARRAY: [i32; 64] = [i32::MAX; 64];
-        const ARRAY2: [[i32; 64]; 64] = [ARRAY; 64];
+        const ARRAY: [u32; 64] = [0; 64];
+        const ARRAY2: [[u32; 64]; 64] = [ARRAY; 64];
         Self {
             killer_moves: vec![Default::default(); depth + 1],
             history_table: [ARRAY2; 2],
         }
     }
 
+    #[inline(always)]
+    pub fn lift_killer_moves(&mut self, depth_to_lift: usize) {
+        for _ in 0..depth_to_lift {
+            self.killer_moves.insert(0, KillerEntry::default());
+        }
+    }
+
     // pub fn get(&self, depth: usize) -> KillerEntry{
     //     self.killer_moves[depth]
     // }
-
+    
+    #[inline(always)]
     pub fn insert_killer_move(&mut self, mov: Move, depth: usize) {
         self.killer_moves[depth].insert(mov);
     }
 
+    #[inline(always)]
     pub fn cmp_move(
         &mut self,
         x: &MoveBufferEntry,
-        y: & MoveBufferEntry,
+        y: &MoveBufferEntry,
         depth: usize,
         last_move_pos: u8,
         player: Player,
@@ -86,19 +98,20 @@ impl MoveOrderer {
         ))
     }
 
+    #[inline(always)]
     // note: black castling is the same squares as white castling
-    fn get_move_index(mov: Move, player: Player) -> Option<(usize, usize)> {
+    fn get_move_index(mov: Move, player: Player) -> Option<(u8, u8)> {
         match mov {
             Move::Move {
                 prev_pos,
                 new_pos,
-                piece,
-                captured_piece,
+                pieces,
             } => {
+                let (piece, captured_piece) = pieces.to_square_types();
                 if captured_piece.is_empty() {
                     None
                 } else {
-                    Some((prev_pos as usize, new_pos as usize))
+                    Some((prev_pos, new_pos))
                 }
             }
             Move::Castle { is_short: true } => {
@@ -117,13 +130,13 @@ impl MoveOrderer {
             }
             Move::PawnPromote {
                 prev_pos, new_pos, ..
-            } => Some((prev_pos as usize, new_pos as usize)),
+            } => Some((prev_pos, new_pos)),
             Move::EnPassant {
                 prev_column,
                 new_column,
             } => Some(match player {
-                Player::White => (32 + prev_column as usize, 40 + new_column as usize),
-                Player::Black => (24 + prev_column as usize, 16 + new_column as usize),
+                Player::White => (32 + prev_column, 40 + new_column),
+                Player::Black => (24 + prev_column, 16 + new_column),
             }),
             _ => None,
         }
@@ -133,8 +146,8 @@ impl MoveOrderer {
     pub fn update_history(&mut self, mov: Move, player: Player, normalized_depth: usize) {
         match Self::get_move_index(mov, player) {
             Some((prev_pos, new_pos)) => {
-                self.history_table[player as usize][prev_pos][new_pos] -=
-                    (normalized_depth as i32) * (normalized_depth as i32)
+                self.history_table[player as usize][prev_pos as usize][new_pos as usize] +=
+                    (normalized_depth as u32) * (normalized_depth as u32)
             }
             None => (),
         }
@@ -145,6 +158,7 @@ impl MoveOrderer {
         self.killer_moves[depth].contains(mov)
     }
 
+    #[inline(always)]
     fn get_move_cmp_key(
         &mut self,
         move_buffer_entry: &MoveBufferEntry,
@@ -152,28 +166,26 @@ impl MoveOrderer {
         killer_entry: KillerEntry,
         player: Player,
         transposition_move: Option<Move>,
-    ) -> (u8, i32) {
+    ) -> u32 {
         let mov = move_buffer_entry.get_move();
         match mov {
             Move::Move {
-                new_pos,
-                piece,
-                captured_piece,
-                ..
+                new_pos, pieces, ..
             } => {
+                let (piece, captured_piece) = pieces.to_square_types();
                 if captured_piece.is_king() {
-                    return (0, 0);
+                    return 0;
                 } else if let Some(trans_mov) = transposition_move {
                     if mov == trans_mov {
-                        return (0, 1);
+                        return 1 << 16;
                     }
                 }
                 if !captured_piece.is_empty() {
                     // if new_pos == last_move_pos {
                     //     (1, piece.value())
-                    // } 
-                    // else 
-                    
+                    // }
+                    // else
+
                     // // if piece.value() <= captured_piece.value()
                     //  {
                     //     (2, piece.value() - captured_piece.value() * 100)
@@ -183,29 +195,36 @@ impl MoveOrderer {
                     //     (4, piece.value() - captured_piece.value() * 100 - 1)
                     // }
                     let see = move_buffer_entry.get_see_exn();
-                    if see >= 0 {
-                        (2, -see)
+                    if see > 0 {
+                        let first = if new_pos == last_move_pos { 1 } else { 2 };
+                        (first << 16) + (1 << 16) - 1 - captured_piece.value()
+                    } else if see == 0 {
+                        if new_pos == last_move_pos {
+                            3 << 16
+                        } else {
+                            (3 << 16) + 1
+                        }
+                    } else {
+                        (5 << 16) + (1 << 16) - 1 - see as u32
                     }
-                    else{
-                        (5, -see)
-                    }
-                }
-                 else if killer_entry.contains(mov) {
+                } else if killer_entry.contains(mov) {
                     // println!("killer move");
-                    (3, 0)
-                } 
-                else if let Some((prev_pos, new_pos)) = Self::get_move_index(mov, player) {
-                    (4, self.history_table[player as usize][prev_pos][new_pos])
-                } 
-                else {
-                    (4, 0)
+                    (3 << 16) + 2
+                } else if let Some((prev_pos, new_pos)) = Self::get_move_index(mov, player) {
+                    (4 << 16) + (1 << 16)
+                        - 1
+                        - (self.history_table[player as usize][prev_pos as usize][new_pos as usize]
+                            & 0xffff)
+                } else {
+                    (4 << 16) + (1 << 16) - 1
                 }
             }
-            Move::Castle { .. } => (4, 0),
-            Move::PawnPromote {
-                promoted_to_piece, ..
-            } => (2, -promoted_to_piece.value()),
-            Move::EnPassant { .. } => (3, 1),
+            Move::Castle { .. } => (4 << 16) + (1 << 16) - 10,
+            Move::PawnPromote { pieces, .. } => {
+                let (promoted_to_piece, _) = pieces.to_square_types();
+                (2 << 16) + (1 << 16) - 1 - promoted_to_piece.value()
+            }
+            Move::EnPassant { .. } => (3 << 16) + 3,
         }
     }
 }

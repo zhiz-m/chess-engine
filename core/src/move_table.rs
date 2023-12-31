@@ -30,14 +30,23 @@ impl Default for MoveTableBucket {
 
 impl MoveTableBucket {
     fn insert(&mut self, entry: MoveEntry) {
-        if self.0.depth > entry.depth {
-            if self.0.hash != entry.hash{
-                self.1 = self.0;
+        if self.0.hash == entry.hash || self.1.hash == entry.hash{
+            if self.0.hash == entry.hash && self.0.depth < entry.depth{
+                self.0 = entry;
             }
-            self.0 = entry;
-        } else {
-            self.1 = entry
+            if self.1.hash == entry.hash && self.1.depth < entry.depth{
+                self.1 = entry;
+            }
+            return;
         }
+        // if self.0.depth > entry.depth {
+            // if self.0.hash != entry.hash{
+                self.1 = self.0;
+            // }
+            self.0 = entry;
+        // } else {
+            // self.1 = entry
+        // }
     }
 }
 
@@ -54,6 +63,7 @@ impl<const MOVE_TABLE_SIZE: usize> Default for MoveTable<MOVE_TABLE_SIZE> {
 }
 
 impl<const MOVE_TABLE_SIZE: usize> MoveTable<MOVE_TABLE_SIZE> {
+    #[inline(always)]
     pub fn get_entry_for_direct_cutoff(&self, hash: HashType, depth: u8, state: &GameState) -> Option<MoveEntry> {
         let ind = hash as usize & (MOVE_TABLE_SIZE - 1);
         if self.table[ind].0.depth % 2 == depth % 2
@@ -74,6 +84,7 @@ impl<const MOVE_TABLE_SIZE: usize> MoveTable<MOVE_TABLE_SIZE> {
         // None
     }
 
+    #[inline(always)]
     pub fn get_entry_for_ordering(&self, hash: HashType, depth: u8, state: &GameState) -> Option<MoveEntry> {
         let ind = hash as usize & (MOVE_TABLE_SIZE - 1);
         if self.table[ind].0.depth % 2 == depth % 2
@@ -94,6 +105,7 @@ impl<const MOVE_TABLE_SIZE: usize> MoveTable<MOVE_TABLE_SIZE> {
         // None
     }
 
+    #[inline(always)]
     pub fn get_entry_perft(
         &self,
         hash: HashType,
@@ -109,6 +121,7 @@ impl<const MOVE_TABLE_SIZE: usize> MoveTable<MOVE_TABLE_SIZE> {
         }
     }
 
+    #[inline(always)]
     pub fn insert_entry(&mut self, entry: MoveEntry) {
         let ind = entry.hash as usize & (MOVE_TABLE_SIZE - 1);
         self.table[ind].insert(entry);

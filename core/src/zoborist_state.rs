@@ -28,6 +28,10 @@ impl ZoboristState {
             *num = /*((rng.gen::<u64>() as HashType) << 64) + */rng.gen::<u64>() as HashType;
         }
 
+        for num in state.pieces[0].iter_mut(){
+            *num = 0;
+        }
+
         state.player = /*((rng.gen::<u64>() as HashType) << 64) +*/ rng.gen::<u64>() as HashType;
 
         for num in state.castle.iter_mut() {
